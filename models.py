@@ -290,10 +290,11 @@ class ContinuoNet(nn.Module):
             h_t deterministic (batch_sz, deterministic_size): deterministic state
             
         Returns:
-            d_t: done or not
+            dist: Beurnoulli distribution of done
         """
         x = torch.cat((stoch_state, deterministic), -1)
-        return self.net(x)
+        x = self.net(x)
+        return torch.distributions.Bernoulli(logits=x)
     
     
 class Actor(nn.Module):
@@ -320,10 +321,6 @@ class Actor(nn.Module):
         
         self.net = nn.Sequential(
             nn.Linear(latent_size, hidden_size),
-            activation,
-            nn.Linear(hidden_size, hidden_size),
-            activation,
-            nn.Linear(hidden_size, hidden_size),
             activation,
             nn.Linear(hidden_size, self.action_size)
         )
@@ -358,7 +355,47 @@ class Actor(nn.Module):
         return action
     
     
-class CriticNet(nn.Module):
-    def __init__(self, ):
+class Critic(nn.Module):
+    """
+    critic network
+    """
+    def __init__(self, latent_size, hidden_size, activation=nn.ELU()):
         super().__init__()
+        self.latent_size = latent_size
+        
+        self.net = nn.Sequential(
+            nn.Linear(latent_size, hidden_size),
+            activation,
+            nn.Linear(hidden_size, hidden_size),
+            activation,
+            nn.Linear(hidden_size, 1)
+        )
+        
+    def forward(self, stoch_state, deterministic):
+        """critic network. get in stochastic state and deterministic state to construct latent state
+            and then use latent state to predict state value
+
+        Args:
+            s_t stoch_state (batch_sz, seq_len, stoch_size): stochastic state (or posterior)
+            h_t deterministic (batch_sz, seq_len, deterministic_size): deterministic state
+            
+        Returns:
+            state value distribution. 
+        """
+        latent_state = torch.cat((stoch_state, deterministic), -1)
+
+        batch_shape = latent_state.shape[:-1]
+        if not batch_shape:
+            batch_shape = (1, )
+        
+        latent_state = latent_state.reshape(-1, self.latent_size)
+        
+        x = self.net(latent_state)
+        
+        x = x.reshape(*batch_shape, 1)
+        
+        dist = torch.distributions.Normal(x, 1)
+        dist = torch.distributions.Independent(dist, 1)
+        
+        return dist
         
