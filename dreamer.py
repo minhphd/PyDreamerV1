@@ -309,8 +309,19 @@ if __name__ == "__main__":
 
     env_id = config.gymnasium.env_id
     experiment_name = config.experiment_name
-
     local_path = f"/{env_id}/{experiment_name}/"
+
+    if config.wandb.enable:
+        import wandb
+        
+        wandb.init(
+            project=config.wandb.project,
+            entity=config.wandb.entity,
+            sync_tensorboard=True,
+            name=experiment_name,
+            monitor_gym=True,
+            save_code=True,
+        )
 
     env = gym.make(env_id, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)

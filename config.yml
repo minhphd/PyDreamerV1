@@ -55,7 +55,7 @@ main:
     deterministic_size : 600
     stochastic_size : 600
     embedded_obs_size : 1024
-    buffer_capacity : 5000000
+    buffer_capacity : 500000
 
     epsilon_start: 0.4
     epsilon_end: 0.1
