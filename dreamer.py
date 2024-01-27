@@ -16,10 +16,12 @@ import gymnasium as gym
 import models
 from buffer import ReplayBuffer
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import yaml
 from addict import Dict
+from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 class Dreamer:
@@ -71,6 +73,7 @@ class Dreamer:
                                   self.config.main.hidden_units).to(self.device)
         
         #optimizers
+        self.cont_criterion = nn.BCELoss()
         self.dyna_optimizer = optim.Adam(self.dyna_parameters, lr=self.config.main.dyna_model_lr)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.config.main.actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.config.main.critic_lr)
@@ -107,9 +110,14 @@ class Dreamer:
             #training step
             for c in range(self.config.main.collect_iter):
                 #draw data
+                batch = self.buffer.sample(self.config.main.batch_size, self.config.main.seq_len, self.device)
+                
                 #dynamic learning
+                post, deter = self.dynamic_learning(batch)
+                
                 #behavioral learning
-                self.gradient_step += 1
+                self.behavioral_learning(post, deter)
+                
                 self.update_epsilon()
                 
             # collect more data with exploration noise
@@ -117,7 +125,107 @@ class Dreamer:
             
             if _ % self.config.main.eval_freq == 0:
                 eval_score = self.data_collection(self.config.main.eval_eps, eval=True)
+                self.writer.add_scalar('performance/evaluation score', eval_score, self.env_step)
+    
+    
+    def dynamic_learning(self, batch):
+        """Learning the dynamic model. In this method, we sequentially pass data in the RSSM to
+        learn the model
+
+        Args:
+            batch (addict.Dict): batches of data
+        """
+        
+        #unpack
+        b_obs = batch.obs
+        b_a = batch.actions
+        b_r = batch.rewards
+        b_d = batch.dones
+        
+        batch_size, seq_len, _ = b_r.shape
+        eb_obs = self.encoder(b_obs)
+        
+        #initialized stochastic states (posterior) and deterministic states to first pass into the recurrent model
+        posterior = torch.zeros((batch_size, self.config.main.stochastic_size)).to(self.device)
+        deterministic = torch.zeros((batch_size, self.config.main.deterministic_size)).to(self.device)
+        
+        #initialized memory storing of sequential gradients data
+        stochastic_size = self.config.main.stochastic_size
+        
+        posteriors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+        priors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+        deterministics = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+
+        kl_loss = 0
+
+        #now the fun begin, sequentially passing data in
+        #this part I got a lot of inspiration from SimpleDreamer
+        for t in range(1, seq_len):
+            deterministic = self.rssm.recurrent(posterior, b_a[:, t-1, :], deterministic)
+            prior_dist, prior = self.rssm.transition(deterministic)
+            posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
+
+            #store gradient data
+            kl_loss += torch.distributions.kl.kl_divergence(prior_dist, posterior_dist)
             
+            posteriors[:, t-1, :] = posterior
+            
+            priors[:, t-1, :] = prior
+            
+            deterministics[:, t-1, :] = deterministic
+            
+            
+        #we start optimizing model with the provided data
+        #KL loss KL(p, q)
+        kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
+        
+        #reconstruction loss
+        # reshape to 4 dimension because Mac Metal can only handle up to 4 dimensions
+        if self.device == torch.device("mps"):
+            mps_flatten = True
+        
+        reconstruct_dist = self.decoder(posteriors, deterministics, mps_flatten)
+        target = b_obs[:, 1:]
+        if mps_flatten:
+            target = target.reshape(-1, *self.obs_size)
+        
+        reconstruct_loss = reconstruct_dist.log_prob(target).mean()
+        
+        #reward loss
+        rewards = self.reward(posteriors, deterministics)
+        rewards_dist = torch.distributions.Normal(rewards, 1)
+        rewards_dist = torch.distributions.Independent(rewards_dist, 1)
+        rewards_loss = rewards_dist.log_prob(b_r[:, 1:]).mean()
+        
+        #continuity loss (Bernoulli)
+        continue_dist = self.cont_net(posteriors, deterministics)
+        continue_loss = self.cont_criterion(continue_dist.probs, 1 - b_d[:, 1:])
+        
+        total_loss = self.config.main.kl_divergence_scale * kl_loss - reconstruct_loss - rewards_loss + continue_loss
+        
+        self.dyna_optimizer.zero_grad()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(
+            self.dyna_parameters,
+            self.config.main.clip_grad,
+            norm_type=self.config.main.grad_norm_type,
+        )
+        self.dyna_optimizer.step()
+        self.gradient_step += 1
+        
+        #tensorboard logging
+        writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
+        writer.add_scalar('Dynamic_model/Reconstruction', reconstruct_loss.item(), self.gradient_step)
+        writer.add_scalar('Dynamic_model/Reward', rewards_loss.item(), self.gradient_step)
+        writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
+        writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
+        
+        return posteriors, deterministics
+    
+    
+    def behavioral_learning(sel, posteriors, deterministics):
+        pass     
+        
             
     @torch.no_grad()
     def data_collection(self, num_episodes, eval=False):
@@ -169,15 +277,20 @@ class Dreamer:
             next_obs, reward, termination, truncation, info = self.env.step(action)
             
             if not eval:
-                self.buffer.add(obs, action, reward, next_obs, termination | truncation)
+                self.buffer.add(obs, actions, reward, next_obs, termination | truncation)
                 self.env_step += 1
             obs = next_obs
             
             action = actor_out
             if "episode" in info:
+                print(ep)
                 score += info["episode"]["r"][0]
                 obs, _ = self.env.reset()
                 ep += 1
+                
+                posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
+                deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
+                action = torch.zeros((1, self.action_size)).to(self.device)
             
         return score/num_episodes
     
@@ -195,7 +308,6 @@ if __name__ == "__main__":
             return observation.T
 
     env_id = config.gymnasium.env_id
-    # env_id = "CarRacing-v2"
     experiment_name = config.experiment_name
 
     local_path = f"/{env_id}/{experiment_name}/"
@@ -210,5 +322,5 @@ if __name__ == "__main__":
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
     
     agent = Dreamer(config, env, writer)
-    agent.data_collection(1)
+    agent.train()
     env.close()

@@ -3,7 +3,8 @@ experiement_name: test1
 seed: 0
 
 gymnasium:
-    env_id: ALE/Boxing-v5
+    # env_id: ALE/Boxing-v5
+    env_id: ALE/Breakout-v5
     channel_first: True
     discrete: True
     resize_obs: True
@@ -30,19 +31,20 @@ main:
     total_iter: 1000
     collect_iter: 100
     data_interact_ep: 1
-    data_init_ep: 5
+    data_init_ep: 1
+    # data_init_ep: 5
     horizon: 10
     batch_size: 50
     seq_len: 50
     eval_eps: 10
-    evaL_freq: 10
+    eval_freq: 10
 
     kl_divergence_scale : 1
     free_nats : 3
     discount : 0.99
     lambda_ : 0.95
     
-    use_continue_flag : False
+    use_continue_flag : True
     actor_lr : 8.0e-5
     critic_lr : 8.0e-5
     dyna_model_lr : 6.0e-4

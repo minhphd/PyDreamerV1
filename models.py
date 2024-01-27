@@ -221,7 +221,18 @@ class ConvDecoder(nn.Module):
         
         
         
-    def forward(self, posterior, deterministic):
+    def forward(self, posterior, deterministic, mps_flatten=False):
+        """take in the stochastic state (posterior) and deterministic to construct the latent state then 
+        output reconstructed pixel observation
+
+        Args:
+            s_t (batch_sz, stoch_size): stochastic state (or posterior)
+            h_t (batch_sz, deterministic_size): deterministic state
+            mps_flatten (boolean): whether to flattening the output for mps device or not. This is because M1 GPU can
+                                   only support max 4 dimension (stupid af)
+        Returns:
+            o'_t: reconstructed_obs
+        """
         x = torch.cat((posterior, deterministic), -1)
         batch_shape = x.shape[:-1]
         if not batch_shape:
@@ -229,8 +240,13 @@ class ConvDecoder(nn.Module):
         
         x = x.reshape(-1, x.shape[-1])
         
+        if mps_flatten:
+            batch_shape = (-1, )
+        
         mean = self.net(x).reshape(*batch_shape, *self.out_shape)
+        
         dist = torch.distributions.Normal(mean, 1)
+        
         # #flatten output
         return torch.distributions.Independent(dist, len(self.out_shape))
     
@@ -264,7 +280,13 @@ class RewardNet(nn.Module):
             r_t: rewards
         """
         x = torch.cat((stoch_state, deterministic), -1)
-        return self.net(x)
+        batch_shape = x.shape[:-1]
+        if not batch_shape:
+            batch_shape = (1, )
+
+        x = x.reshape(-1, x.shape[-1])
+        
+        return self.net(x).reshape(*batch_shape, 1)
     
 
 class ContinuoNet(nn.Module):
@@ -298,7 +320,13 @@ class ContinuoNet(nn.Module):
             dist: Beurnoulli distribution of done
         """
         x = torch.cat((stoch_state, deterministic), -1)
-        x = self.net(x)
+        batch_shape = x.shape[:-1]
+        if not batch_shape:
+            batch_shape = (1, )
+
+        x = x.reshape(-1, x.shape[-1])
+        
+        x = self.net(x).reshape(*batch_shape, 1)
         return torch.distributions.Bernoulli(logits=x)
     
     

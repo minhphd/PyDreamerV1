@@ -15,11 +15,12 @@ Description:
 import numpy as np
 from gymnasium import Env
 import torch
+from addict import Dict
 
 class ReplayBuffer:
     def __init__(self, capacity, env: Env, discrete: bool):
         self.obs_size = env.observation_space.shape
-        self.action_size = env.action_space.n if discrete else env.action_space.shape
+        self.action_size = (env.action_space.n, ) if discrete else env.action_space.shape
         
         # flip n_channels to first
         if len(self.obs_size) == 3:
@@ -29,6 +30,7 @@ class ReplayBuffer:
         state_type = np.uint8 if len(self.obs_size) < 3 else np.float32
         
         self.observation = np.zeros((capacity, ) + self.obs_size, dtype=state_type)
+        
         self.actions = np.zeros((capacity, ) + self.action_size, dtype=np.float32)
         self.rewards = np.zeros((capacity, 1), dtype=np.float32)
         self.next_observation = np.zeros((capacity, ) + self.obs_size, dtype=state_type)
@@ -102,13 +104,15 @@ dones_buffer_shape: {self.dones.shape}
         seq_len = np.arange(seq_len)
         sample_idcs = (start_index + seq_len) % self.observation.shape[0]
         
-        obs = torch.from_numpy(self.observation[sample_idcs]).to(device)
-        actions = torch.from_numpy(self.actions[sample_idcs]).to(device)
-        rewards = torch.from_numpy(self.rewards[sample_idcs]).to(device)
-        next_obs = torch.from_numpy(self.next_observation[sample_idcs]).to(device)
-        dones = torch.from_numpy(self.dones[sample_idcs]).to(device)
+        batch = Dict()
         
-        return obs, actions, rewards, next_obs, dones
+        batch.obs = torch.from_numpy(self.observation[sample_idcs]).to(device)
+        batch.actions = torch.from_numpy(self.actions[sample_idcs]).to(device)
+        batch.rewards = torch.from_numpy(self.rewards[sample_idcs]).to(device)
+        batch.next_obs = torch.from_numpy(self.next_observation[sample_idcs]).to(device)
+        batch.dones = torch.from_numpy(self.dones[sample_idcs]).to(device)
+        
+        return batch
     
     def clear(self, ):
         self.pointer = 0
