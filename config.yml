@@ -1,0 +1,56 @@
+device: "mps"
+experiement_name: test1
+seed: 0
+
+gymnasium:
+    env_id: ALE/Breakout-v5
+    channel_first: True
+    discrete: True
+    resize_obs: True
+    new_obs_size: [64, 64]
+    norm_obs: True
+
+tensorboard:
+    enable: False
+    log_dir: "./runs/"
+    log_frequency: 1  # Log every 1000 steps
+
+wandb:
+    enable: False
+    project: "dreamer"
+    entity: "phdminh01"
+    log_frequency: 1
+
+video_recording:
+    enable: False
+    record_frequency: 5000  #episodes
+    save_path: "./runs/{env_id}/{experiment_name}/videos"
+
+main:
+    train_iter: 1000
+    horizon: 15
+    batch_size: 50
+    seq_len: 50
+    collect_freq: 100
+    pre_interact_eps: 1
+    eval_eps: 3
+    evaL_freq: 10
+
+    kl_divergence_scale : 1
+    free_nats : 3
+    discount : 0.99
+    lambda_ : 0.95
+    
+    use_continue_flag : False
+    actor_lr : 0.00004
+    critic_lr : 0.0001
+    dyna_model_lr : 0.0002
+    grad_norm_type : 2
+    clip_grad : 100
+    
+    hidden_units: 400
+    deterministic_size : 600
+    stochastic_size : 600
+    embedded_obs_size : 1024
+    buffer_capacity : 5000000
+    

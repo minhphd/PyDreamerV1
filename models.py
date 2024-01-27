@@ -59,6 +59,8 @@ class RSSM(nn.Module):
             nn.Linear(hidden_size, stochastic_size*2)
         )
         
+        print(self)
+        
         
     def recurrent(self, stoch_state, action, deterministic):
         """The recurrent model, calculate the deterministic state given the stochastic state
@@ -162,6 +164,9 @@ class ConvEncoder(nn.Module):
         )
         self.conv_layer.apply(initialize_weights)
         
+        print(self)
+        
+        
     def forward(self, x):
         batch_shape = x.shape[:-len(self.input_shape)]
         if not batch_shape:
@@ -217,6 +222,8 @@ class ConvDecoder(nn.Module):
         )
         self.net.apply(initialize_weights)
         
+        print(self)
+        
         
     def forward(self, posterior, deterministic):
         x = torch.cat((posterior, deterministic), -1)
@@ -247,6 +254,9 @@ class RewardNet(nn.Module):
             activation,
             nn.Linear(hidden_size, 1)
         )
+        
+        print(self)
+        
         
     def forward(self, stoch_state, deterministic):
         """take in the stochastic state and deterministic to construct the latent state then 
@@ -280,6 +290,9 @@ class ContinuoNet(nn.Module):
             activation,
             nn.Linear(hidden_size, 1)
         )
+        
+        print(self)
+        
         
     def forward(self, stoch_state, deterministic):
         """take in the stochastic state and deterministic to construct the latent state then 
@@ -324,6 +337,8 @@ class Actor(nn.Module):
             activation,
             nn.Linear(hidden_size, self.action_size)
         )
+        
+        print(self)
     
         
     def forward(self, stoch_state, deterministic):
@@ -370,6 +385,9 @@ class Critic(nn.Module):
             activation,
             nn.Linear(hidden_size, 1)
         )
+        
+        print(self)
+        
         
     def forward(self, stoch_state, deterministic):
         """critic network. get in stochastic state and deterministic state to construct latent state
