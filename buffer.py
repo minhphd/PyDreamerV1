@@ -19,7 +19,7 @@ import torch
 class ReplayBuffer:
     def __init__(self, capacity, env: Env, discrete: bool):
         self.obs_size = env.observation_space.shape
-        self.action_size = env.action_space.n if discrete else env.action_space.shape[0]
+        self.action_size = env.action_space.n if discrete else env.action_space.shape
         
         # flip n_channels to first
         if len(self.obs_size) == 3:

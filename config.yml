@@ -3,7 +3,7 @@ experiement_name: test1
 seed: 0
 
 gymnasium:
-    env_id: ALE/Breakout-v5
+    env_id: ALE/Boxing-v5
     channel_first: True
     discrete: True
     resize_obs: True
@@ -27,13 +27,14 @@ video_recording:
     save_path: "./runs/{env_id}/{experiment_name}/videos"
 
 main:
-    train_iter: 1000
-    horizon: 15
+    total_iter: 1000
+    collect_iter: 100
+    data_interact_ep: 1
+    data_init_ep: 5
+    horizon: 10
     batch_size: 50
     seq_len: 50
-    collect_freq: 100
-    pre_interact_eps: 1
-    eval_eps: 3
+    eval_eps: 10
     evaL_freq: 10
 
     kl_divergence_scale : 1
@@ -42,9 +43,9 @@ main:
     lambda_ : 0.95
     
     use_continue_flag : False
-    actor_lr : 0.00004
-    critic_lr : 0.0001
-    dyna_model_lr : 0.0002
+    actor_lr : 8.0e-5
+    critic_lr : 8.0e-5
+    dyna_model_lr : 6.0e-4
     grad_norm_type : 2
     clip_grad : 100
     
@@ -53,4 +54,10 @@ main:
     stochastic_size : 600
     embedded_obs_size : 1024
     buffer_capacity : 5000000
-    
+
+    epsilon_start: 0.4
+    epsilon_end: 0.1
+    eps_decay_steps: 200000
+
+    mean_noise: 0
+    std_noise: 0.3
