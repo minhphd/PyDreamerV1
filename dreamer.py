@@ -319,7 +319,7 @@ class Dreamer:
         self.critic_optimizer.step()
         
         writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
-        writer.add_scalar('Behavorial_model/Critic', critic_loss_loss.item(), self.gradient_step)
+        writer.add_scalar('Behavorial_model/Critic', critic_loss.item(), self.gradient_step)
         
             
     @torch.no_grad()
