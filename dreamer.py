@@ -24,6 +24,35 @@ from addict import Dict
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
+
+def td_lambda(states, rewards, dones, values, lamda_val, discount_val, device):
+    """
+    Compute the TD(λ) returns for value estimation.
+
+    Args:
+    - states (Tensor): Tensor of states with shape [batch_size, time_steps, state_dim].
+    - rewards (Tensor): Tensor of rewards with shape [batch_size, time_steps].
+    - dones (Tensor): Tensor indicating episode termination with shape [batch_size, time_steps].
+    - values (Tensor): Tensor of value estimates with shape [batch_size, time_steps].
+    - lamda_val (float): The λ parameter in TD(λ) controlling bias-variance tradeoff.
+    - discount_val (float): Discount factor (y) used in calculating returns.
+
+    Returns:
+    - td_lambda (Tensor): The computed lambda returns with shape [batch_size, time_steps].
+    """
+    
+    batch_size, time_steps, _ = rewards.shape
+    td_lambda = torch.zeros_like(rewards).to(device)
+    future_return = values[:, -1]
+
+    for t in reversed(range(time_steps)):
+        delta = rewards[:, t] + discount_val * (1 - dones[:, t]) * future_return - values[:, t]
+        future_return = values[:, t] + delta * lamda_val
+        td_lambda[:, t] = future_return
+
+    return td_lambda
+
+
 class Dreamer:
     def __init__(self, config, env: gym.Env, writer: SummaryWriter = None):
         self.config = config
@@ -118,6 +147,8 @@ class Dreamer:
                 #behavioral learning
                 self.behavioral_learning(post, deter)
                 
+                #update step
+                self.gradient_step += 1
                 self.update_epsilon()
                 
             # collect more data with exploration noise
@@ -181,6 +212,7 @@ class Dreamer:
         
         #reconstruction loss
         # reshape to 4 dimension because Mac Metal can only handle up to 4 dimensions
+        mps_flatten = False
         if self.device == torch.device("mps"):
             mps_flatten = True
         
@@ -211,7 +243,6 @@ class Dreamer:
             norm_type=self.config.main.grad_norm_type,
         )
         self.dyna_optimizer.step()
-        self.gradient_step += 1
         
         #tensorboard logging
         writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
@@ -223,8 +254,72 @@ class Dreamer:
         return posteriors, deterministics
     
     
-    def behavioral_learning(sel, posteriors, deterministics):
-        pass     
+    def behavioral_learning(self, state, deterministics):
+        """Learning behavioral through latent imagination
+
+        Args:
+            self (_type_): _description_
+            state (batch_size, seq_len, stoch_state_size): starting point state
+            deterministics (batch_size, seq_len, stoch_state_size)
+        """
+        
+        #flatten the batches
+        state = state.reshape(-1, self.config.main.stochastic_size)
+        deterministics = deterministics.reshape(-1, self.config.main.deterministic_size)
+        
+        batch_size, stochastic_size = state.shape
+        _, deterministics_size = deterministics.shape
+        
+        #initialized trajectories
+        state_trajectories = torch.zeros((batch_size, self.config.main.horizon, stochastic_size)).to(self.device)
+        deterministics_trajectories = torch.zeros((batch_size, self.config.main.horizon, deterministics_size)).to(self.device)
+        
+        #imagine trajectories
+        for t in range(self.config.main.horizon):
+            action = self.actor(state, deterministics)
+            deterministics = self.rssm.recurrent(state, action, deterministics)
+            _, state = self.rssm.transition(deterministics)
+            state_trajectories[:, t, :] = state
+            deterministics_trajectories[:, t, :] = state
+        
+        #now we update actor and critic
+        rewards = self.reward(state_trajectories, deterministics_trajectories)
+        rewards_dist = torch.distributions.Normal(rewards, 1)
+        rewards_dist = torch.distributions.Independent(rewards_dist, 1)
+        rewards = rewards_dist.mean
+        continues = self.cont_net(state_trajectories, deterministics_trajectories).mean
+        values = self.critic(state_trajectories, deterministics_trajectories).mean        
+        
+        #bootstrapping td_value
+        returns = td_lambda(state_trajectories, rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
+        
+        # actor optimizing
+        actor_loss = -returns.mean()
+        
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        nn.utils.clip_grad_norm_(
+            self.actor.parameters(),
+            self.config.main.clip_grad,
+            norm_type=self.config.main.grad_norm_type,
+        )
+        self.actor_optimizer.step()
+        
+        # critic optimizing
+        values_dist = self.critic(state_trajectories[:, :-1].detach(), deterministics_trajectories[:, :-1].detach())
+        critic_loss = -values_dist.log_prob(returns.detach()).mean()
+        
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        nn.utils.clip_grad_norm_(
+            self.critic.parameters(),
+            self.config.main.clip_grad,
+            norm_type=self.config.main.grad_norm_type,
+        )
+        self.critic_optimizer.step()
+        
+        writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
+        writer.add_scalar('Behavorial_model/Critic', critic_loss_loss.item(), self.gradient_step)
         
             
     @torch.no_grad()
@@ -334,4 +429,5 @@ if __name__ == "__main__":
     
     agent = Dreamer(config, env, writer)
     agent.train()
+    
     env.close()

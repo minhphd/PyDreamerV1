@@ -22,6 +22,6 @@ sudo apt-get install -y swig
 
 # Gymnasium and additional dependencies via pip
 echo "Installing requirements.txt"
-pip3 install requirements.txt
+pip3 install -r requirements.txt
 
 echo "Setup complete!"

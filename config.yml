@@ -1,5 +1,5 @@
-device: "mps"
-experiement_name: test1
+device: "cuda"
+experiment_name: test1
 seed: 0
 
 gymnasium:
