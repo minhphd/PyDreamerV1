@@ -145,7 +145,7 @@ class Dreamer:
         for _ in tqdm(range(self.config.main.total_iter)):
             
             #training step
-            for c in range(self.config.main.collect_iter):
+            for c in tqdm(range(self.config.main.collect_iter)):
                 #draw data
                 batch = self.buffer.sample(self.config.main.batch_size, self.config.main.seq_len, self.device)
                 
@@ -199,7 +199,7 @@ class Dreamer:
 
         #now the fun begin, sequentially passing data in
         #this part I got a lot of inspiration from SimpleDreamer
-        for t in range(1, seq_len):
+        for t in (range(1, seq_len)):
             deterministic = self.rssm.recurrent(posterior, b_a[:, t-1, :], deterministic)
             prior_dist, prior = self.rssm.transition(deterministic)
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
@@ -283,7 +283,7 @@ class Dreamer:
         deterministics_trajectories = torch.zeros((batch_size, self.config.main.horizon, deterministics_size)).to(self.device)
         
         #imagine trajectories
-        for t in range(self.config.main.horizon):
+        for t in (range(self.config.main.horizon)):
             action = self.actor(state, deterministics)
             deterministics = self.rssm.recurrent(state, action, deterministics)
             _, state = self.rssm.transition(deterministics)
@@ -362,6 +362,7 @@ class Dreamer:
                 actions = actor_out.cpu().numpy()
                 if self.config.gymnasium.discrete:
                     if np.random.rand() < self.epsilon:
+                        print(self.epsilon)
                         action = np.random.choice(len(actions))
                     else:
                         action = np.argmax(actions)
@@ -386,10 +387,11 @@ class Dreamer:
             
             action = actor_out
             if "episode" in info:
-                score += info["episode"]["r"][0]
+                cur_score = info["episode"]["r"][0]
+                score += cur_score
                 obs, _ = self.env.reset()
                 ep += 1
-                
+                self.writer.add_scalar('performance/training score', cur_score, self.env_step)
                 posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
                 deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
                 action = torch.zeros((1, self.action_size)).to(self.device)
