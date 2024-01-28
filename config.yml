@@ -3,8 +3,8 @@ experiment_name: test1
 seed: 0
 
 gymnasium:
-    # env_id: ALE/Boxing-v5
-    env_id: ALE/Breakout-v5
+    env_id: ALE/Boxing-v5
+    # env_id: ALE/Breakout-v5
     channel_first: True
     discrete: True
     resize_obs: True
@@ -23,21 +23,21 @@ wandb:
     log_frequency: 1
 
 video_recording:
-    enable: False
-    record_frequency: 5000  #episodes
-    save_path: "./runs/{env_id}/{experiment_name}/videos"
+    enable: True
+    record_frequency: 10  #episodes
+    save_path: "./runs/"
 
 main:
-    total_iter: 1000
+    total_iter: 2000
     collect_iter: 100
     data_interact_ep: 1
-    data_init_ep: 1
-    # data_init_ep: 5
+    # data_init_ep: 1
+    data_init_ep: 5
     horizon: 10
     batch_size: 50
     seq_len: 50
-    eval_eps: 10
-    eval_freq: 10
+    eval_eps: 3
+    eval_freq: 5
 
     kl_divergence_scale : 1
     free_nats : 3

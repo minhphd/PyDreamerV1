@@ -427,6 +427,8 @@ if __name__ == "__main__":
 
     env = gym.make(env_id, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)
+    if config.video_recording.enable:
+       env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
     env = gym.wrappers.ResizeObservation(env, shape=(64,64))
     env = gym.wrappers.NormalizeObservation(env)
     env = channelFirst(env)
