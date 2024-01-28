@@ -35,19 +35,27 @@ def td_lambda(states, rewards, dones, values, lamda_val, discount_val, device):
     - dones (Tensor): Tensor indicating episode termination with shape [batch_size, time_steps].
     - values (Tensor): Tensor of value estimates with shape [batch_size, time_steps].
     - lamda_val (float): The λ parameter in TD(λ) controlling bias-variance tradeoff.
-    - discount_val (float): Discount factor (y) used in calculating returns.
+    - discount_val (float): Discount factor (γ) used in calculating returns.
 
     Returns:
-    - td_lambda (Tensor): The computed lambda returns with shape [batch_size, time_steps].
+    - td_lambda (Tensor): The computed lambda returns with shape [batch_size, time_steps - 1].
     """
-    
-    batch_size, time_steps, _ = rewards.shape
-    td_lambda = torch.zeros_like(rewards).to(device)
-    future_return = values[:, -1]
+    # Exclude the last timestep for rewards and dones
+    rewards = rewards[:, :-1]
+    dones = dones[:, :-1]
 
-    for t in reversed(range(time_steps)):
-        delta = rewards[:, t] + discount_val * (1 - dones[:, t]) * future_return - values[:, t]
-        future_return = values[:, t] + delta * lamda_val
+    # Initialize td_lambda tensor with one less timestep
+    td_lambda = torch.zeros_like(rewards).to(device)
+
+    # Use next state's value if not done, else use 0 (as the episode ends)
+    next_values = values[:, 1:] * (1 - dones) + dones * 0
+    
+    # Bootstrap from next state's value
+    future_return = next_values[:, -1]
+
+    for t in reversed(range(rewards.size(1))):
+        td_target = rewards[:, t] + discount_val * future_return
+        future_return = values[:, t] + lamda_val * (td_target - values[:, t])
         td_lambda[:, t] = future_return
 
     return td_lambda
@@ -134,7 +142,7 @@ class Dreamer:
         self.data_collection(self.config.main.data_init_ep)
 
         #main train loop
-        for _ in range(self.config.main.total_iter):
+        for _ in tqdm(range(self.config.main.total_iter)):
             
             #training step
             for c in range(self.config.main.collect_iter):
@@ -251,7 +259,7 @@ class Dreamer:
         writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
         writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
         
-        return posteriors, deterministics
+        return posteriors.detach(), deterministics.detach()
     
     
     def behavioral_learning(self, state, deterministics):
@@ -378,7 +386,6 @@ class Dreamer:
             
             action = actor_out
             if "episode" in info:
-                print(ep)
                 score += info["episode"]["r"][0]
                 obs, _ = self.env.reset()
                 ep += 1
