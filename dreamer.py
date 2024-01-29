@@ -22,6 +22,7 @@ import numpy as np
 import yaml
 from addict import Dict
 from tqdm import tqdm
+import pickle
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -59,7 +60,6 @@ def td_lambda(states, rewards, dones, values, lamda_val, discount_val, device):
         td_lambda[:, t] = future_return
 
     return td_lambda
-
 
 class Dreamer:
     def __init__(self, config, env: gym.Env, writer: SummaryWriter = None):
@@ -137,12 +137,40 @@ class Dreamer:
         Returns:
             _type_: _description_
         """
+            
+        ep = 0
+        obs, _ = self.env.reset()
+        while ep < self.config.main.data_init_ep:
+            action = self.env.action_space.sample()
+            if self.config.gymnasium.discrete:  
+                actions = np.zeros((self.action_size, ))
+                actions[action] = 1.0
+            else:
+                actions = np.array([1.0/self.action_size for _ in range(self.action_size)])
+                
+            next_obs, reward, termination, truncation, info = self.env.step(action)
         
-        #prefill dataset with 1 episode
-        self.data_collection(self.config.main.data_init_ep)
-
+            self.buffer.add(obs, actions, reward, next_obs, termination | truncation)
+            obs = next_obs     
+            if "episode" in info:
+                obs, _ = self.env.reset()
+                ep += 1
+                print(ep)
+                
         #main train loop
         for _ in tqdm(range(self.config.main.total_iter)):
+            #save model if reached checkpoint
+            if _ % self.config.main.save_freq == 0:
+                torch.save(self.rssm, './models/rssm_model')
+                torch.save(self.encoder, './models/encoder')
+                torch.save(self.decoder, './models/decoder')
+                torch.save(self.actor, './models/actor')
+                torch.save(self.critic, './models/actor')
+            
+            #run eval if reach eval checkpoint
+            if _ % self.config.main.eval_freq == 0:
+                eval_score = self.data_collection(self.config.main.eval_eps, eval=True)
+                self.writer.add_scalar('performance/evaluation score', eval_score, self.env_step)
             
             #training step
             for c in tqdm(range(self.config.main.collect_iter)):
@@ -162,9 +190,6 @@ class Dreamer:
             # collect more data with exploration noise
             self.data_collection(self.config.main.data_interact_ep)
             
-            if _ % self.config.main.eval_freq == 0:
-                eval_score = self.data_collection(self.config.main.eval_eps, eval=True)
-                self.writer.add_scalar('performance/evaluation score', eval_score, self.env_step)
     
     
     def dynamic_learning(self, batch):
@@ -253,11 +278,11 @@ class Dreamer:
         self.dyna_optimizer.step()
         
         #tensorboard logging
-        writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
-        writer.add_scalar('Dynamic_model/Reconstruction', reconstruct_loss.item(), self.gradient_step)
-        writer.add_scalar('Dynamic_model/Reward', rewards_loss.item(), self.gradient_step)
-        writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
-        writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Dynamic_model/Reconstruction', reconstruct_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Dynamic_model/Reward', rewards_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
         
         return posteriors.detach(), deterministics.detach()
     
@@ -283,7 +308,8 @@ class Dreamer:
         deterministics_trajectories = torch.zeros((batch_size, self.config.main.horizon, deterministics_size)).to(self.device)
         
         #imagine trajectories
-        for t in (range(self.config.main.horizon)):
+        for t in range(self.config.main.horizon):
+            # do not include the starting state
             action = self.actor(state, deterministics)
             deterministics = self.rssm.recurrent(state, action, deterministics)
             _, state = self.rssm.transition(deterministics)
@@ -326,8 +352,8 @@ class Dreamer:
         )
         self.critic_optimizer.step()
         
-        writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
-        writer.add_scalar('Behavorial_model/Critic', critic_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
+        self.writer.add_scalar('Behavorial_model/Critic', critic_loss.item(), self.gradient_step)
         
             
     @torch.no_grad()
@@ -338,6 +364,7 @@ class Dreamer:
         Args:
             num_episodes (int): number of episodes
             eval (bool): Evaluation mode. Defaults to False.
+            random (bool): Random mode. Defaults to False.
 
         Returns:
             _type_: _description_
@@ -362,8 +389,7 @@ class Dreamer:
                 actions = actor_out.cpu().numpy()
                 if self.config.gymnasium.discrete:
                     if np.random.rand() < self.epsilon:
-                        print(self.epsilon)
-                        action = np.random.choice(len(actions))
+                        action = self.env.action_space.sample()
                     else:
                         action = np.argmax(actions)
                 else:
@@ -409,7 +435,7 @@ if __name__ == "__main__":
             gym.ObservationWrapper.__init__(self, env)
             
         def observation(self, observation):
-            return observation.T
+            return np.transpose(observation, (2, 0, 1))
 
     env_id = config.gymnasium.env_id
     experiment_name = config.experiment_name

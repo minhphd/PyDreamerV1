@@ -3,8 +3,8 @@ experiment_name: test1
 seed: 0
 
 gymnasium:
-    env_id: BreakoutNoFrameskip-v4
-    # env_id: ALE/Boxing-v5
+    # env_id: BreakoutNoFrameskip-v4
+    env_id: ALE/Boxing-v5
     # env_id: ALE/Breakout-v5
     channel_first: True
     discrete: True
@@ -30,6 +30,7 @@ video_recording:
 
 main:
     total_iter: 2000
+    save_freq: 100
     collect_iter: 50
     data_interact_ep: 1
     # data_init_ep: 1
