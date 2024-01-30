@@ -3,11 +3,9 @@ experiment_name: test1
 seed: 0
 
 gymnasium:
-    # env_id: BreakoutNoFrameskip-v4
-    env_id: ALE/Boxing-v5
-    # env_id: ALE/Breakout-v5
+    env_id: CarRacing-v2
     channel_first: True
-    discrete: True
+    discrete: False
     resize_obs: True
     new_obs_size: [64, 64]
     norm_obs: True
@@ -26,7 +24,6 @@ wandb:
 video_recording:
     enable: False
     record_frequency: 10  #episodes
-    save_path: "./runs/"
 
 main:
     total_iter: 2000
