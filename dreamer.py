@@ -165,7 +165,7 @@ class Dreamer:
                 torch.save(self.encoder, './models/encoder')
                 torch.save(self.decoder, './models/decoder')
                 torch.save(self.actor, './models/actor')
-                torch.save(self.critic, './models/actor')
+                torch.save(self.critic, './models/critic')
             
             #run eval if reach eval checkpoint
             if _ % self.config.main.eval_freq == 0:
@@ -314,7 +314,7 @@ class Dreamer:
             deterministics = self.rssm.recurrent(state, action, deterministics)
             _, state = self.rssm.transition(deterministics)
             state_trajectories[:, t, :] = state
-            deterministics_trajectories[:, t, :] = state
+            deterministics_trajectories[:, t, :] = deterministics
         
         #now we update actor and critic
         rewards = self.reward(state_trajectories, deterministics_trajectories)
@@ -380,7 +380,7 @@ class Dreamer:
         
         while ep < num_episodes:
             embed_obs = self.encoder(torch.from_numpy(obs).to(self.device, dtype=torch.float)) #(1, embed_obs_sz)
-            deterministic = self.rssm.recurrent(action, posterior, deterministic)
+            deterministic = self.rssm.recurrent(posterior, action, deterministic)
             _, posterior = self.rssm.representation(embed_obs, deterministic)
             actor_out = self.actor(posterior, deterministic)
             
@@ -435,7 +435,16 @@ if __name__ == "__main__":
             gym.ObservationWrapper.__init__(self, env)
             
         def observation(self, observation):
-            return np.transpose(observation, (2, 0, 1))
+            observation = (observation / 255) - 0.5
+            return observation.transpose([2,0,1])
+
+    class TanhRewardWrapper(gym.RewardWrapper):
+        def __init__(self, env):
+            super().__init__(env)
+
+        def reward(self, reward):
+            # Apply tanh to the reward to bound it
+            return np.tanh(reward)
 
     env_id = config.gymnasium.env_id
     experiment_name = config.experiment_name
@@ -458,8 +467,8 @@ if __name__ == "__main__":
     if config.video_recording.enable:
        env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
     env = gym.wrappers.ResizeObservation(env, shape=(64,64))
-    env = gym.wrappers.NormalizeObservation(env)
     env = channelFirst(env)
+    env = TanhRewardWrapper(env)
     obs, _ = env.reset()
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
