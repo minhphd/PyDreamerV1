@@ -3,8 +3,8 @@
 This repository contains an implementation of the Dreamer algorithm, introduced by Hafner et al. in their paper "Dream to Control: Learning Behaviors by Latent Imagination." This implementation closely follows the original paper, with clear and structured code that emphasizes readability and maintainability.
 
 <div align="center">
-  <img src="./gif/imagine.gif" alt="Trained RSSM imagining 50 steps ahead" width="50%"/>
-  <img src="./gif/boxing.gif" alt="Trained boxing agent" width="50%"/>
+  <img src="./gif/imagine.gif" alt="Trained RSSM imagining 50 steps ahead" width="300px" height="300px"/>
+  <img src="./gif/boxing.gif" alt="Trained boxing agent" width="300px" height="300px"/>
 </div>
 
 ## Features
