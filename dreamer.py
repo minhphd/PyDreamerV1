@@ -430,6 +430,7 @@ if __name__ == "__main__":
     with open('./configs/car_racing_config.yml', 'r') as file:
         config = Dict(yaml.load(file, Loader=yaml.FullLoader))
     
+    # some wrappers
     class channelFirst(gym.ObservationWrapper):
         def __init__(self, env: gym.Env):
             gym.ObservationWrapper.__init__(self, env)
