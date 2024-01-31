@@ -13,8 +13,8 @@ Description:
 """
 
 import gymnasium as gym
-import models
-from buffer import ReplayBuffer
+import utils.models as models
+from utils.buffer import ReplayBuffer
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -26,7 +26,7 @@ import pickle
 from torch.utils.tensorboard import SummaryWriter
 
 
-def td_lambda(states, rewards, dones, values, lamda_val, discount_val, device):
+def td_lambda(rewards, dones, values, lamda_val, discount_val, device):
     """
     Compute the TD(λ) returns for value estimation.
 
@@ -325,7 +325,7 @@ class Dreamer:
         values = self.critic(state_trajectories, deterministics_trajectories).mean        
         
         #bootstrapping td_value
-        returns = td_lambda(state_trajectories, rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
+        returns = td_lambda(rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
         
         # actor optimizing
         actor_loss = -returns.mean()
