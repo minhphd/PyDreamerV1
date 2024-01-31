@@ -427,7 +427,7 @@ class Dreamer:
 
 if __name__ == "__main__":
     # Load the configuration
-    with open('./configs/car_racing_config.yml', 'r') as file:
+    with open('./configs/ant_v4.yml', 'r') as file:
         config = Dict(yaml.load(file, Loader=yaml.FullLoader))
     
     # some wrappers
@@ -436,6 +436,8 @@ if __name__ == "__main__":
             gym.ObservationWrapper.__init__(self, env)
             
         def observation(self, observation):
+            if config.gymnasium.pixels:
+                observation = observation['pixels']
             observation = (observation / 255) - 0.5
             return observation.transpose([2,0,1])
 
@@ -463,10 +465,11 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    env = gym.make(env_id, render_mode="rgb_array")
+    env = gym.make(env_id, render_mode="human")
     env = gym.wrappers.RecordEpisodeStatistics(env)
     if config.video_recording.enable:
        env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
+    env = gym.wrappers.PixelObservationWrapper(env)
     env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
     env = channelFirst(env)
     env = TanhRewardWrapper(env)
