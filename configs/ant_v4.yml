@@ -1,4 +1,4 @@
-device: "cuda"
+device: "mps"
 experiment_name: Ant-v4
 seed: 0
 

@@ -430,14 +430,23 @@ if __name__ == "__main__":
     with open('./configs/ant_v4.yml', 'r') as file:
         config = Dict(yaml.load(file, Loader=yaml.FullLoader))
     
+    class DeconstructObsDict(gym.ObservationWrapper):
+        def __init__(self, env):
+            super().__init__(env)
+            # Update the observation space to reflect the changes
+            obs_space = env.observation_space['pixels']
+            self.observation_space = gym.spaces.Box(low=obs_space.low, high=obs_space.high, dtype=obs_space.dtype)
+
+        def observation(self, observation):
+            # Extract and return the pixel data
+            return observation['pixels'] 
+    
     # some wrappers
     class channelFirst(gym.ObservationWrapper):
         def __init__(self, env: gym.Env):
             gym.ObservationWrapper.__init__(self, env)
             
         def observation(self, observation):
-            if config.gymnasium.pixels:
-                observation = observation['pixels']
             observation = (observation / 255) - 0.5
             return observation.transpose([2,0,1])
 
@@ -465,14 +474,16 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    env = gym.make(env_id, render_mode="human")
+    env = gym.make(env_id, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)
     if config.video_recording.enable:
        env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
-    env = gym.wrappers.PixelObservationWrapper(env)
+    if config.gymnasium.pixels:
+        env = gym.wrappers.PixelObservationWrapper(env)
+        env = DeconstructObsDict(env)    
     env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
     env = channelFirst(env)
-    env = TanhRewardWrapper(env)
+    # env = TanhRewardWrapper(env)
     obs, _ = env.reset()
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
