@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
-Created: Jan 31st, 2024
-Last Modified: Jan 31st, 2024
+Created: Jan 27th, 2024
+Last Modified: Jan 27th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -27,14 +27,11 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import cv2
 
-# DeepMind Control Suite
-from dm_control import suite
-from dm_control.suite.wrappers import pixels
-
 # Gymnasium
 import gymnasium as gym
 
 # Local Modules
+from utils.wrappers import DMCtoGymWrapper
 import utils.models as models
 from utils.buffer import ReplayBuffer
 from utils.utils import td_lambda, get_obs, log_metrics
@@ -45,21 +42,15 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 class Dreamer:
-    def __init__(self, config, env, logpath, obs_size=None, writer = None, wandb_writer=None, record_ep=False, record_freq=100):
-        self.record_freq = record_freq
-        self.frames = []
-        self.record_ep = record_ep
+    def __init__(self, config, env, logpath, writer = None, wandb_writer=None):
         self.config = config
         self.device = torch.device(self.config.device)
         self.env = env
         self.logpath=logpath
-        if not obs_size:
-            self.obs_size = env.observation_spec().shape
-        else:
-            self.obs_size = obs_size
-        self.action_size = env.action_spec().shape[0]
-        self.epsilon = self.config.main.epsilon_start
         self.env_step = 0
+        
+        self.obs_size = env.observation_space.shape
+        self.action_size = env.action_space.shape[0]
         
         #dynamic networks initialized
         self.rssm = models.RSSM(self.config.main.stochastic_size, 
@@ -126,26 +117,21 @@ class Dreamer:
         """
             
         ep = 0
-        last_t = self.env.reset()
-        obs = get_obs(last_t, self.obs_size[1:])
-        action_spec = env.action_spec()
-        while ep < 1:
-        # while ep < self.config.main.data_init_ep:
-            random_action = np.random.uniform(action_spec.minimum, action_spec.maximum, action_spec.shape)
-                
-            cur_t = self.env.step(random_action)
-            next_obs = get_obs(cur_t, self.obs_size[1:])
+        obs, _ = self.env.reset()
+        
+        while ep < self.config.main.data_init_ep:
+            random_action = env.action_space.sample()   
+            next_obs, reward, termination, truncation, info = self.env.step(random_action)
             
             self.buffer.add(obs, 
                             random_action, 
-                            cur_t.reward or 0, 
-                            next_obs, cur_t.last())
+                            reward, 
+                            termination or truncation)
             
-            next_obs = obs
+            obs = next_obs
             
-            if cur_t.last():
-                last_t = self.env.reset()
-                obs = get_obs(last_t, self.obs_size[1:])
+            if 'episode' in info:
+                obs, _ = self.env.reset()
                 ep += 1
                 print(ep)
                 
@@ -213,11 +199,9 @@ class Dreamer:
         deterministic = torch.zeros((batch_size, self.config.main.deterministic_size)).to(self.device)
         
         #initialized memory storing of sequential gradients data
-        stochastic_size = self.config.main.stochastic_size
-        
-        posteriors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        priors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        deterministics = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+        posteriors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        priors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        deterministics = torch.zeros((batch_size, seq_len-1, self.config.main.deterministic_size)).to(self.device)
 
         kl_loss = 0
 
@@ -384,28 +368,9 @@ class Dreamer:
         deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
         action_tensor = torch.zeros((1, self.action_size)).to(self.device)
         
-        culm_reward = 0
-        cur_t = self.env.reset()
-        obs = get_obs(cur_t, self.obs_size[1:])
-        
-        start_rolling = False
+        obs, _ = self.env.reset()
         
         while ep < num_episodes:
-            self.frames.append(cur_t.observation['pixels'])
-            
-            #for recording episode
-            if self.record_ep and ep % self.record_freq == 0:
-                if not start_rolling:
-                    # make the directory if it does not exists
-                    video_dir = self.logpath + 'videos/'
-                    os.makedirs(video_dir, exist_ok=True)
-                    height, width, _ = self.frames[0].shape
-                    
-                    #start recorder
-                    video_writer = cv2.VideoWriter(video_dir + f'ep{ep}.webm', cv2.VideoWriter_fourcc(*'vp80'), 30, (width, height))
-                    start_rolling = True
-                
-                video_writer.write(cv2.cvtColor(cur_t.observation['pixels'], cv2.COLOR_RGB2BGR))
             
             embed_obs = self.encoder(torch.from_numpy(obs.copy()).to(self.device, dtype=torch.float)) #(1, embed_obs_sz)
             deterministic = self.rssm.recurrent(posterior, action_tensor, deterministic)
@@ -423,30 +388,24 @@ class Dreamer:
             else:
                 action = actions[0]
                   
-            cur_t = self.env.step(action)
-            next_obs = get_obs(cur_t, self.obs_size[1:])
-            culm_reward += (cur_t.reward or 0)
+            next_obs, reward, termination, truncation, info = self.env.step(action)
             
             if not eval:
-                self.buffer.add(obs, actions, cur_t.reward or 0, next_obs, cur_t.last())
+                self.buffer.add(obs, actions, reward, termination or truncation)
                 self.env_step += 1
             obs = next_obs
-            
             action_tensor = actor_out
-            if cur_t.last():
-                cur_score = culm_reward
+            
+            if "episode" in info:
+                cur_score = info["episode"]["r"][0]
                 score += cur_score
-                last_t = self.env.reset()
-                obs = get_obs(last_t, self.obs_size[1:])
-                if start_rolling:
-                    video_writer.release()
-                    start_rolling = False
-                    if self.wandb_writer:
-                        self.wandb_writer.log({'performance/videos': wandb.Video(self.logpath + f'videos/ep{ep}.webm', format='webm')})
-                self.frames = []
+                obs, _ = self.env.reset()
                 ep += 1
                 
+                if 'video_path' in info:
+                    wandb.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
                 log_metrics({'performance/training score': cur_score}, self.env_step, self.writer, self.wandb_writer)
+                
                 posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
                 deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
                 action = torch.zeros((1, self.action_size)).to(self.device)
@@ -479,15 +438,28 @@ if __name__ == "__main__":
             project=config.wandb.project,
             entity=config.wandb.entity,
             name=experiment_name,
+            # monitor_gym=True,
+            sync_tensorboard=True,
             save_code=True,
         )
+                
+        # wandb.define_metric('gradient_step')
+        # wandb.define_metric('Behavorial_model/*', step_metric='gradient_step')
+        # wandb.define_metric('Dynamic_model/*', step_metric='gradient_step')
+        
+        # wandb.define_metric('train_step')
+        # wandb.define_metric('global_episode')
+        # wandb.define_metric('performance/training score', step_metric='env_step')
+        # wandb.define_metric('performance/evaluation score', step_metric='global_episode')
 
-    env = suite.load(domain_name=domain_name,
-                     task_name=task)
-    env = pixels.Wrapper(env, pixels_only='pixels')
+    env = DMCtoGymWrapper(domain_name,
+                          task,
+                          resize=config.dmc.new_obs_size,
+                          record=True,
+                          record_freq=config.video_recording.record_frequency,
+                          record_path=config.tensorboard.log_dir + local_path + 'videos/')
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
     
-    agent = Dreamer(config=config, obs_size=tuple([3, 64,64]), env=env, wandb_writer=wandb_writer, writer=writer, record_ep=config.video_recording.enable, logpath=config.tensorboard.log_dir + local_path)
-    # agent.data_collection(1)
-    agent.train()
+    agent = Dreamer(config=config, env=env, wandb_writer=wandb_writer, writer=writer, logpath=config.tensorboard.log_dir + local_path)
+    # agent.train()

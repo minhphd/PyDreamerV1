@@ -24,5 +24,9 @@ sudo apt-get install -y swig
 # Gymnasium and additional dependencies via pip
 echo "Installing requirements.txt"
 pip3 install -r requirements.txt
+sudo apt-get install xvfb
+Xvfb :99 -screen 0 1024x768x24 &
+
+export DISPLAY=:99
 
 echo "Setup complete!"

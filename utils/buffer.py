@@ -31,7 +31,6 @@ class ReplayBuffer:
         
         self.actions = np.zeros((capacity, ) + self.action_size, dtype=np.float32)
         self.rewards = np.zeros((capacity, 1), dtype=np.float32)
-        self.next_observation = np.zeros((capacity, ) + self.obs_size, dtype=state_type)
         self.dones = np.zeros((capacity, 1), dtype=np.float32)
 
         self.pointer = 0
@@ -43,13 +42,12 @@ class ReplayBuffer:
 obs_buffer_shape: {self.observation.shape}
 actions_buffer_shape: {self.actions.shape}
 rewards_buffer_shape: {self.rewards.shape}
-nxt_obs_buffer_shape: {self.next_observation.shape}
 dones_buffer_shape: {self.dones.shape}
 
 ----------------------------------------
               ''')
 
-    def add(self, obs, action, reward, next_obs, done):
+    def add(self, obs, action, reward, done):
         """Add method for buffer
 
         Args:
@@ -62,7 +60,6 @@ dones_buffer_shape: {self.dones.shape}
         self.observation[self.pointer] = obs
         self.actions[self.pointer] = action
         self.rewards[self.pointer] = reward
-        self.next_observation[self.pointer] = next_obs
         self.dones[self.pointer] = done
         self.pointer = (self.pointer + 1) % self.observation.shape[0]
         if self.pointer == 0:
@@ -107,7 +104,6 @@ dones_buffer_shape: {self.dones.shape}
         batch.obs = torch.from_numpy(self.observation[sample_idcs]).to(device)
         batch.actions = torch.from_numpy(self.actions[sample_idcs]).to(device)
         batch.rewards = torch.from_numpy(self.rewards[sample_idcs]).to(device)
-        batch.next_obs = torch.from_numpy(self.next_observation[sample_idcs]).to(device)
         batch.dones = torch.from_numpy(self.dones[sample_idcs]).to(device)
         
         return batch

@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Jan 27th, 2024
-Last Modified: Jan 31st, 2024
+Last Modified: Jan 27th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -12,12 +12,13 @@ Description:
     [Online]. Available: https://arxiv.org/abs/1912.01603
 """
 
-i# Standard Library Imports
+# Standard Library Imports
 import os
 import numpy as np
 import yaml
 from tqdm import tqdm
 import pickle
+from datetime import datetime
 
 # Machine Learning and Data Processing Imports
 import torch
@@ -129,7 +130,7 @@ class Dreamer:
                 
             next_obs, reward, termination, truncation, info = self.env.step(action)
         
-            self.buffer.add(obs, actions, reward, next_obs, termination | truncation)
+            self.buffer.add(obs, actions, reward, termination | truncation)
             obs = next_obs     
             if "episode" in info:
                 obs, _ = self.env.reset()
@@ -394,7 +395,7 @@ class Dreamer:
             next_obs, reward, termination, truncation, info = self.env.step(action)
             
             if not eval:
-                self.buffer.add(obs, actions, reward, next_obs, termination | truncation)
+                self.buffer.add(obs, actions, reward, termination | truncation)
                 self.env_step += 1
             obs = next_obs
             
@@ -414,7 +415,7 @@ class Dreamer:
 
 if __name__ == "__main__":
     # Load the configuration
-    with open('./configs/gymnasium/boxing_v4_config.yml', 'r') as file:
+    with open('./configs/gymnasium/Pacman-v5.yml', 'r') as file:
         config = Dict(yaml.load(file, Loader=yaml.FullLoader))
     
     class DeconstructObsDict(gym.ObservationWrapper):
@@ -447,7 +448,16 @@ if __name__ == "__main__":
 
     env_id = config.gymnasium.env_id
     experiment_name = config.experiment_name
+    
+    # Generate a timestamp or use the current date
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Construct the experiment name
+    experiment_name = f"{env_id}_{timestamp}"
+
+    # Local path for saving or accessing experiment-related files
     local_path = f"/{env_id}/{experiment_name}/"
+    
 
     if config.wandb.enable:
         import wandb
@@ -470,7 +480,7 @@ if __name__ == "__main__":
         env = DeconstructObsDict(env)    
     env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
     env = channelFirst(env)
-    # env = TanhRewardWrapper(env)
+    env = TanhRewardWrapper(env)
     obs, _ = env.reset()
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)

@@ -19,11 +19,11 @@ wandb:
 
 video_recording:
     enable: True
-    record_frequency: 100  #episodes
+    record_frequency: 50  #episodes
 
 main:
     total_iter: 2000
-    save_freq: 100
+    save_freq: 20
     collect_iter: 100
     data_interact_ep: 1
     # data_init_ep: 1
@@ -40,15 +40,15 @@ main:
     lambda_ : 0.95
     
     use_continue_flag : True
-    actor_lr : 3.0e-4
-    critic_lr : 3.0e-4
+    actor_lr : 8.0e-5
+    critic_lr : 8.0e-5
     dyna_model_lr : 6.0e-4
     grad_norm_type : 2
     clip_grad : 100
     
-    hidden_units: 400
-    deterministic_size : 600
-    stochastic_size : 600
+    hidden_units: 300
+    deterministic_size : 200
+    stochastic_size : 30
     embedded_obs_size : 1024
     buffer_capacity : 500000
 

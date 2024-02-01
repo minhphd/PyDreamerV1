@@ -8,14 +8,14 @@ def log_metrics(metrics, step, tb_writer, wandb_writer):
             tb_writer.add_scalar(key, value, step)
     
     # Log metrics to wandb
-    if wandb_writer:
-        wandb_writer.log(metrics, step=step)
+    # if wandb_writer:
+    #     wandb_writer.log(metrics, step=step)
 
-def get_obs(time_step, new_size):
-    obs = time_step.observation['pixels']
+
+def get_obs(env, new_size):
+    obs = env.physics.render(*new_size)
     obs = obs/255 - 0.5
-    resized_obs = cv2.resize(obs, new_size, interpolation=cv2.INTER_AREA)
-    rearranged_obs = resized_obs.transpose([2,0,1])
+    rearranged_obs = obs.transpose([2,0,1])
     return rearranged_obs
 
 
