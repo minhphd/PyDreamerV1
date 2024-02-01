@@ -18,14 +18,12 @@ import torch
 from addict import Dict
 
 class ReplayBuffer:
-    def __init__(self, capacity, env: Env, discrete: bool):
-        self.obs_size = env.observation_space.shape
-        self.action_size = (env.action_space.n, ) if discrete else env.action_space.shape
+    def __init__(self, capacity, obs_size, action_size, discrete: bool):
         
-        # flip n_channels to first
-        if len(self.obs_size) == 3:
-            self.obs_size = (self.obs_size[-1], self.obs_size[0], self.obs_size[1])
-        
+        # check if the env is gymnasium or dmc
+        self.obs_size = obs_size
+        self.action_size = action_size
+
         # from SimpleDreamer implementation, saving memory
         state_type = np.uint8 if len(self.obs_size) < 3 else np.float32
         

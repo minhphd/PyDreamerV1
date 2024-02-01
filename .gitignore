@@ -13,6 +13,7 @@ models/
 
 # Runs directory
 runs/
+wandb/
 
 #test files
 test_files/

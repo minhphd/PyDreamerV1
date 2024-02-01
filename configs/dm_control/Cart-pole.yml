@@ -1,0 +1,60 @@
+device: "mps"
+experiment_name: Cart-pole
+
+dmc:
+    domain: cartpole
+    task: balance
+    new_obs_size: [3, 64, 64]
+    
+tensorboard:
+    enable: False
+    log_dir: "./runs/"
+    log_frequency: 1  # Log every 1000 steps
+
+wandb:
+    enable: True
+    project: "dreamer"
+    entity: "phdminh01"
+    log_frequency: 1
+
+video_recording:
+    enable: True
+    record_frequency: 100  #episodes
+
+main:
+    total_iter: 2000
+    save_freq: 100
+    collect_iter: 100
+    data_interact_ep: 1
+    # data_init_ep: 1
+    data_init_ep: 5
+    horizon: 15
+    batch_size: 50
+    seq_len: 50
+    eval_eps: 3
+    eval_freq: 5
+
+    kl_divergence_scale : 1
+    free_nats : 3
+    discount : 0.99
+    lambda_ : 0.95
+    
+    use_continue_flag : True
+    actor_lr : 3.0e-4
+    critic_lr : 3.0e-4
+    dyna_model_lr : 6.0e-4
+    grad_norm_type : 2
+    clip_grad : 100
+    
+    hidden_units: 400
+    deterministic_size : 600
+    stochastic_size : 600
+    embedded_obs_size : 1024
+    buffer_capacity : 500000
+
+    epsilon_start: 0.4
+    epsilon_end: 0.1
+    eps_decay_steps: 200000
+
+    mean_noise: 0
+    std_noise: 0.3
