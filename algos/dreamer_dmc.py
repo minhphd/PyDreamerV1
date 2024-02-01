@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
-Created: Jan 27th, 2024
-Last Modified: Jan 27th, 2024
+Created: Jan 31st, 2024
+Last Modified: Jan 31st, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -129,8 +129,8 @@ class Dreamer:
         last_t = self.env.reset()
         obs = get_obs(last_t, self.obs_size[1:])
         action_spec = env.action_spec()
-        self.data_collection(1)
-        while ep < self.config.main.data_init_ep:
+        while ep < 1:
+        # while ep < self.config.main.data_init_ep:
             random_action = np.random.uniform(action_spec.minimum, action_spec.maximum, action_spec.shape)
                 
             cur_t = self.env.step(random_action)
@@ -402,12 +402,12 @@ class Dreamer:
                     height, width, _ = self.frames[0].shape
                     
                     #start recorder
-                    video_writer = cv2.VideoWriter(video_dir + f'ep{ep}.mp4', cv2.VideoWriter_fourcc(*'avc1'), 30, (width, height))
+                    video_writer = cv2.VideoWriter(video_dir + f'ep{ep}.webm', cv2.VideoWriter_fourcc(*'vp80'), 30, (width, height))
                     start_rolling = True
                 
                 video_writer.write(cv2.cvtColor(cur_t.observation['pixels'], cv2.COLOR_RGB2BGR))
-                
-            embed_obs = self.encoder(torch.from_numpy(obs).to(self.device, dtype=torch.float)) #(1, embed_obs_sz)
+            
+            embed_obs = self.encoder(torch.from_numpy(obs.copy()).to(self.device, dtype=torch.float)) #(1, embed_obs_sz)
             deterministic = self.rssm.recurrent(posterior, action_tensor, deterministic)
             _, posterior = self.rssm.representation(embed_obs, deterministic)
             actor_out = self.actor(posterior, deterministic)
@@ -437,11 +437,12 @@ class Dreamer:
                 cur_score = culm_reward
                 score += cur_score
                 last_t = self.env.reset()
-                obs = last_t.observation['pixels']
+                obs = get_obs(last_t, self.obs_size[1:])
                 if start_rolling:
                     video_writer.release()
                     start_rolling = False
-                    self.wandb_writer.log({'performance/videos': wandb.Video(self.logpath + f'videos/ep{ep}.mp4', format='mp4')})
+                    if self.wandb_writer:
+                        self.wandb_writer.log({'performance/videos': wandb.Video(self.logpath + f'videos/ep{ep}.webm', format='webm')})
                 self.frames = []
                 ep += 1
                 
@@ -470,6 +471,7 @@ if __name__ == "__main__":
     # Local path for saving or accessing experiment-related files
     local_path = f"/{domain_name}/{task}/{experiment_name}/"
     
+    wandb_writer = None
     if config.wandb.enable:
         import wandb
         
@@ -486,7 +488,6 @@ if __name__ == "__main__":
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
     
-    agent = Dreamer(config=config, obs_size=tuple([3, 64,64]), env=env, wandb_writer=wandb_writer, writer=writer, record_ep=True, logpath=config.tensorboard.log_dir + local_path)
+    agent = Dreamer(config=config, obs_size=tuple([3, 64,64]), env=env, wandb_writer=wandb_writer, writer=writer, record_ep=config.video_recording.enable, logpath=config.tensorboard.log_dir + local_path)
+    # agent.data_collection(1)
     agent.train()
-    
-    env.close()

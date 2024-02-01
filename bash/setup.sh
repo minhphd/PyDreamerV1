@@ -13,6 +13,7 @@ sudo apt-get install -y build-essential
 
 # Python 3 and pip
 sudo apt-get install -y python3 python3-pip
+sudo apt-get install python3-opencv
 
 # System libraries
 sudo apt-get install -y libglew-dev libjpeg-dev libboost-all-dev libglu1-mesa-dev freeglut3-dev mesa-common-dev
