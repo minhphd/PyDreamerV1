@@ -134,6 +134,8 @@ class Dreamer:
                 obs, _ = self.env.reset()
                 ep += 1
                 print(ep)
+                if 'video_path' in info:
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
                 
         #main train loop
         for _ in tqdm(range(self.config.main.total_iter)):
@@ -403,7 +405,7 @@ class Dreamer:
                 ep += 1
                 
                 if 'video_path' in info:
-                    wandb.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
                 log_metrics({'performance/training score': cur_score}, self.env_step, self.writer, self.wandb_writer)
                 
                 posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
@@ -455,11 +457,11 @@ if __name__ == "__main__":
     env = DMCtoGymWrapper(domain_name,
                           task,
                           resize=config.dmc.new_obs_size,
-                          record=True,
+                          record=config.video_recording.enable,
                           record_freq=config.video_recording.record_frequency,
                           record_path=config.tensorboard.log_dir + local_path + 'videos/')
     
     writer = SummaryWriter(config.tensorboard.log_dir + local_path)
     
     agent = Dreamer(config=config, env=env, wandb_writer=wandb_writer, writer=writer, logpath=config.tensorboard.log_dir + local_path)
-    # agent.train()
+    agent.train()

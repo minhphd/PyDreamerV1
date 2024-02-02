@@ -42,7 +42,7 @@ def td_lambda(rewards, dones, values, lamda_val, discount_val, device):
     td_lambda = torch.zeros_like(rewards).to(device)
 
     # Use next state's value if not done, else use 0 (as the episode ends)
-    next_values = values[:, 1:] * (1 - dones) + dones * 0
+    next_values = values[:, 1:] * (1 - dones)
     
     # Bootstrap from next state's value
     future_return = next_values[:, -1]

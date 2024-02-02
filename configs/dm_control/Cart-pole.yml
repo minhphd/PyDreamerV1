@@ -1,4 +1,4 @@
-device: "mps"
+device: "cuda"
 experiment_name: Cart-pole
 
 dmc:
