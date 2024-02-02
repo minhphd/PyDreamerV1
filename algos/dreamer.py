@@ -217,7 +217,10 @@ class Dreamer:
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
             #store gradient data
-            kl_loss += torch.distributions.kl.kl_divergence(prior_dist, posterior_dist)
+            
+            # very important, the order of p, q in kl(p, q) matter
+            # this kl divergence shows how well prior approximate posterior, not the way around
+            kl_loss += torch.distributions.kl.kl_divergence(posterior_dist, prior_dist)
             
             posteriors[:, t-1, :] = posterior
             

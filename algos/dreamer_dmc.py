@@ -204,7 +204,11 @@ class Dreamer:
         posteriors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
         priors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
         deterministics = torch.zeros((batch_size, seq_len-1, self.config.main.deterministic_size)).to(self.device)
-
+        
+        posterior_means = torch.zeros_like(posteriors).to(self.device)
+        posterior_stds = torch.zeros_like(posteriors).to(self.device)
+        prior_means = torch.zeros_like(priors).to(self.device)
+        prior_stds = torch.zeros_like(priors).to(self.device)
         kl_loss = 0
 
         #now the fun begin, sequentially passing data in
@@ -215,18 +219,30 @@ class Dreamer:
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
             #store gradient data
-            kl_loss += torch.distributions.kl.kl_divergence(prior_dist, posterior_dist)
+            # kl_loss += torch.distributions.kl.kl_divergence(prior_dist, posterior_dist)
             
             posteriors[:, t-1, :] = posterior
+            posterior_means[:, t-1, :] = posterior_dist.mean
+            posterior_stds[:, t-1, :] = posterior_dist.scale
             
             priors[:, t-1, :] = prior
+            prior_means[:, t-1, :] = prior_dist.mean
+            prior_stds[:, t-1, :] = prior_dist.scale
             
             deterministics[:, t-1, :] = deterministic
             
-            
         #we start optimizing model with the provided data
         #KL loss KL(p, q)
-        kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
+        # kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
+        priors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(prior_means, prior_stds), 1
+        )
+        posteriors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(prior_means, prior_stds), 1
+        )
+        kl_loss = torch.max(
+            torch.mean(torch.distributions.kl.kl_divergence(posteriors_dist, priors_dist))
+        )
         
         #reconstruction loss
         # reshape to 4 dimension because Mac Metal can only handle up to 4 dimensions
