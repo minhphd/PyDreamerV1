@@ -99,3 +99,63 @@ class DMCtoGymWrapper(gym.Env):
 
     def render(self, mode='rgb_array'):
         return self.env.physics.render(camera_id=0)  # Adjust camera_id based on the environment
+
+
+class AtariPreprocess(gym.Wrapper):
+    """
+    A custom Gym wrapper that integrates multiple environment processing steps:
+    - Records episode statistics and videos.
+    - Resizes observations to a specified shape.
+    - Scales and reorders observation channels.
+    - Scales rewards using the tanh function.
+
+    Parameters:
+    - env (gym.Env): The original environment to wrap.
+    - new_obs_size (tuple): The target size for observation resizing (height, width).
+    - record (bool): If True, enable video recording.
+    - record_path (str): The directory path where videos will be saved.
+    - record_freq (int): Frequency (in episodes) at which to record videos.
+    """
+    def __init__(self, env, new_obs_size, record=False, record_path='../videos/', record_freq=100):
+        super().__init__(env)
+        self.env = gym.wrappers.RecordEpisodeStatistics(env)
+        
+        if record:
+            self.env = gym.wrappers.RecordVideo(self.env, record_path, episode_trigger=lambda episode_id: episode_id % record_freq == 0)
+        self.env = gym.wrappers.ResizeObservation(self.env, shape=new_obs_size)
+        
+        self.new_obs_size = new_obs_size
+        self.observation_space = gym.spaces.Box(
+            low=-0.5, high=0.5, 
+            shape=(3, new_obs_size[0], new_obs_size[1]), 
+            dtype=np.float32
+        )
+
+    def step(self, action):
+        obs, reward, termination, truncation, info = super().step(action)
+        obs = self.process_observation(obs)
+        reward = np.tanh(reward)  # Scale reward
+        return obs, reward, termination, truncation, info
+
+    def reset(self, **kwargs):
+        obs, info = super().reset(**kwargs)
+        obs = self.process_observation(obs)
+        return obs, info
+
+    def process_observation(self, observation):
+        """
+        Process and return the observation from the environment.
+        - Scales pixel values to the range [-0.5, 0.5].
+        - Reorders channels to CHW format (channels, height, width).
+
+        Parameters:
+        - observation (np.ndarray): The original observation from the environment.
+
+        Returns:
+        - np.ndarray: The processed observation.
+        """
+        if 'pixels' in observation:
+            observation = observation['pixels']
+        observation = observation / 255.0 - 0.5
+        observation = np.transpose(observation, (2, 0, 1))
+        return observation

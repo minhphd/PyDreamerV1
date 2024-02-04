@@ -170,7 +170,7 @@ class ConvEncoder(nn.Module):
             batch_shape = (1, )
         
         x = x.reshape(-1, *self.input_shape)
-            
+        
         out = self.conv_layer(x)
         
         #flatten output

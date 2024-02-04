@@ -19,6 +19,7 @@ import yaml
 from tqdm import tqdm
 import pickle
 from datetime import datetime
+import wandb
 
 # Machine Learning and Data Processing Imports
 import torch
@@ -30,7 +31,7 @@ from addict import Dict
 # Custom Utility Imports
 import utils.models as models
 from utils.buffer import ReplayBuffer
-from utils.utils import td_lambda, td_lambda_exp
+from utils.utils import td_lambda, log_metrics
 
 # Gymnasium Environment Import
 import gymnasium as gym
@@ -41,7 +42,7 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 class Dreamer:
-    def __init__(self, config, logpath, env: gym.Env, writer: SummaryWriter = None):
+    def __init__(self, config, logpath, env, writer = None, wandb_writer=None):
         self.config = config
         self.device = torch.device(self.config.device)
         self.env = env
@@ -50,10 +51,6 @@ class Dreamer:
         self.epsilon = self.config.main.epsilon_start
         self.env_step = 0
         self.logpath = logpath
-        
-        # flip n_channels to first
-        if len(self.obs_size) == 3:
-            self.obs_size = (self.obs_size[-1], self.obs_size[0], self.obs_size[1])
         
         #dynamic networks initialized
         self.rssm = models.RSSM(self.config.main.stochastic_size, 
@@ -99,6 +96,7 @@ class Dreamer:
         self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.gymnasium.discrete)
         
         #tracking stuff
+        self.wandb_writer = wandb_writer
         self.writer = writer
     
     
@@ -125,16 +123,19 @@ class Dreamer:
                 actions = np.zeros((self.action_size, ))
                 actions[action] = 1.0
             else:
-                actions = np.array([1.0/self.action_size for _ in range(self.action_size)])
+                actions = action
                 
             next_obs, reward, termination, truncation, info = self.env.step(action)
         
-            self.buffer.add(obs, actions, reward, termination | truncation)
-            obs = next_obs     
+            self.buffer.add(obs, actions, reward, termination or truncation)
+            obs = next_obs
+            
             if "episode" in info:
                 obs, _ = self.env.reset()
                 ep += 1
                 print(ep)
+                if 'video_path' in info:
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
                 
         #main train loop
         for _ in tqdm(range(self.config.main.total_iter)):
@@ -143,8 +144,7 @@ class Dreamer:
                 
                 #check if models folder exist
                 directory = self.logpath + 'models/'
-                if not os.path.exists(os.path.dirname(directory)):
-                    os.makedirs(directory)
+                os.makedirs(directory, exist_ok=True)
                 
                 #save models
                 torch.save(self.rssm, self.logpath + 'models/rssm_model')
@@ -156,7 +156,8 @@ class Dreamer:
             #run eval if reach eval checkpoint
             if _ % self.config.main.eval_freq == 0:
                 eval_score = self.data_collection(self.config.main.eval_eps, eval=True)
-                self.writer.add_scalar('performance/evaluation score', eval_score, self.env_step)
+                metrics = {'performance/evaluation score': eval_score}
+                log_metrics(metrics, self.env_step, self.writer, self.wandb_writer)
             
             #training step
             for c in tqdm(range(self.config.main.collect_iter)):
@@ -251,7 +252,7 @@ class Dreamer:
             # calculate log prob manually as tensorflow doesn't support float value in logprob of Bernoulli
             # follow closely to Hafner's official code for Dreamer
             cont_logits, _ = self.cont_net(posteriors, deterministics)
-            cont_target = (1 - b_d[:, 1:]) * self.config.main.discount
+            cont_target = (1 - b_d[:, 1:])
             continue_loss = torch.nn.functional.binary_cross_entropy_with_logits(cont_logits, cont_target)
             # probs = torch.sigmoid(cont_logits)
             # log_prob = cont_target * torch.log(probs + 1e-8) + (1 - cont_target) * torch.log(1 - probs + 1e-8)
@@ -283,11 +284,15 @@ class Dreamer:
         self.dyna_optimizer.step()
         
         #tensorboard logging
-        self.writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Reconstruction', reconstruct_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Reward', rewards_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
+        metrics = {
+            'Dynamic_model/KL': kl_loss.item(),
+            'Dynamic_model/Reconstruction': reconstruct_loss.item(),
+            'Dynamic_model/Reward': rewards_loss.item(),
+            'Dynamic_model/Continue': continue_loss.item(),
+            'Dynamic_model/Total': total_loss.item()
+        }
+        
+        log_metrics(metrics, self.gradient_step, self.writer, self.wandb_writer)
         
         return posteriors.detach(), deterministics.detach()
     
@@ -331,13 +336,13 @@ class Dreamer:
         
         if self.config.main.continue_loss:
             _, conts_dist = self.cont_net(state_trajectories, deterministics_trajectories)
-            continues = conts_dist.mean
+            continues = conts_dist.mean * self.config.main.discount
         else:
             continues = self.config.main.discount * torch.ones_like(rewards)
         
         values = self.critic(state_trajectories, deterministics_trajectories).mode
         
-        returns = td_lambda_exp(
+        returns = td_lambda(
             rewards,
             continues,
             values,
@@ -377,8 +382,13 @@ class Dreamer:
         )
         self.critic_optimizer.step()
         
-        self.writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Behavorial_model/Critic', critic_loss.item(), self.gradient_step)
+        metrics = {
+            'Behavorial_model/Actor': actor_loss.item(),
+            'Behavorial_model/Critic': critic_loss.item()
+        }
+        
+        log_metrics(metrics, self.gradient_step, self.writer, self.wandb_writer)
+        
         
             
     @torch.no_grad()
@@ -397,7 +407,6 @@ class Dreamer:
         score = 0
         ep = 0
         obs, _ = self.env.reset()
-        
         #initialized all zeros
         posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
         deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
@@ -443,86 +452,13 @@ class Dreamer:
                 score += cur_score
                 obs, _ = self.env.reset()
                 ep += 1
-                self.writer.add_scalar('performance/training score', cur_score, self.env_step)
+                
+                if 'video_path' in info:
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
+                log_metrics({'performance/training score': cur_score}, self.env_step, self.writer, self.wandb_writer)
+                
                 posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
                 deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
                 action = torch.zeros((1, self.action_size)).to(self.device)
             
         return score/num_episodes
-    
-
-if __name__ == "__main__":
-    # Load the configuration
-    with open('./configs/gymnasium/Boxing-v5.yml', 'r') as file:
-        config = Dict(yaml.load(file, Loader=yaml.FullLoader))
-    
-    class DeconstructObsDict(gym.ObservationWrapper):
-        def __init__(self, env):
-            super().__init__(env)
-            # Update the observation space to reflect the changes
-            obs_space = env.observation_space['pixels']
-            self.observation_space = gym.spaces.Box(low=obs_space.low, high=obs_space.high, dtype=obs_space.dtype)
-
-        def observation(self, observation):
-            # Extract and return the pixel data
-            return observation['pixels'] 
-    
-    # some wrappers
-    class channelFirst(gym.ObservationWrapper):
-        def __init__(self, env: gym.Env):
-            gym.ObservationWrapper.__init__(self, env)
-            
-        def observation(self, observation):
-            observation = (observation / 255) - 0.5
-            return observation.transpose([2,0,1])
-
-    class TanhRewardWrapper(gym.RewardWrapper):
-        def __init__(self, env):
-            super().__init__(env)
-
-        def reward(self, reward):
-            # Apply tanh to the reward to bound it
-            return np.tanh(reward)
-
-    env_id = config.gymnasium.env_id
-    experiment_name = config.experiment_name
-    
-    # Generate a timestamp or use the current date
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    # Construct the experiment name
-    experiment_name = f"{env_id}_{timestamp}"
-
-    # Local path for saving or accessing experiment-related files
-    local_path = f"/{env_id}/{experiment_name}/"
-    
-
-    if config.wandb.enable:
-        import wandb
-        
-        wandb.init(
-            project=config.wandb.project,
-            entity=config.wandb.entity,
-            sync_tensorboard=True,
-            name=experiment_name,
-            monitor_gym=True,
-            save_code=True,
-        )
-
-    env = gym.make(env_id, render_mode="rgb_array")
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-    if config.video_recording.enable:
-       env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
-    if config.gymnasium.pixels:
-        env = gym.wrappers.PixelObservationWrapper(env)
-        env = DeconstructObsDict(env)    
-    env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
-    env = channelFirst(env)
-    env = TanhRewardWrapper(env)
-    obs, _ = env.reset()
-    
-    writer = SummaryWriter(config.tensorboard.log_dir + local_path)
-    
-    agent = Dreamer(config=config, env=env, writer=writer, logpath=config.tensorboard.log_dir + local_path)
-    agent.train()
-    env.close()
