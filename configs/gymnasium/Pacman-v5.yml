@@ -1,4 +1,4 @@
-device: "mps"
+device: "cuda"
 experiment_name: Pacman-v5
 seed: 0
 
@@ -16,13 +16,13 @@ tensorboard:
     log_frequency: 1  # Log every 1000 steps
 
 wandb:
-    enable: False
+    enable: True
     project: "dreamer"
     entity: "phdminh01"
     log_frequency: 1
 
 video_recording:
-    enable: False
+    enable: True
     record_frequency: 100  #episodes
     save_path: "./runs/"
 

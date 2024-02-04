@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Jan 27th, 2024
-Last Modified: Jan 27th, 2024
+Last Modified: Feb 4th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -165,11 +165,9 @@ class Dreamer:
                 
                 #dynamic learning
                 post, deter = self.dynamic_learning(batch)
-                print('finished dynamic learning')
                 
                 #behavioral learning
                 self.behavioral_learning(post, deter)
-                print('finished behavioral learning')
                 
                 #update step
                 self.gradient_step += 1
@@ -249,15 +247,17 @@ class Dreamer:
         rewards_loss = rewards_dist.log_prob(b_r[:, 1:]).mean()
         
         #continuity loss (Bernoulli)
-        
-        continue_loss = 0
         if self.config.main.continue_loss:
             # calculate log prob manually as tensorflow doesn't support float value in logprob of Bernoulli
+            # follow closely to Hafner's official code for Dreamer
             cont_logits, _ = self.cont_net(posteriors, deterministics)
-            cont_target = b_d[:, 1:] * self.config.main.discount
-            probs = torch.sigmoid(cont_logits)
-            log_prob = cont_target * torch.log(probs) + (1 - cont_target) * torch.log(1 - probs)
-            continue_loss = self.config.main.continue_scale_factor * log_prob.mean()
+            cont_target = (1 - b_d[:, 1:]) * self.config.main.discount
+            continue_loss = torch.nn.functional.binary_cross_entropy_with_logits(cont_logits, cont_target)
+            # probs = torch.sigmoid(cont_logits)
+            # log_prob = cont_target * torch.log(probs + 1e-8) + (1 - cont_target) * torch.log(1 - probs + 1e-8)
+            # continue_loss = self.config.main.continue_scale_factor * log_prob.mean()
+        else:
+            continue_loss = torch.zeros((1)).to(self.device)
         
         #kl loss
         priors_dist = torch.distributions.Independent(
@@ -350,8 +350,6 @@ class Dreamer:
             continues[:, :-2]
         ), 1), 1).detach()
         
-        # returns = td_lambda(rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
-        
         # actor optimizing
         actor_loss = -(discount * returns).mean()
         
@@ -363,6 +361,7 @@ class Dreamer:
             norm_type=self.config.main.grad_norm_type,
         )
         self.actor_optimizer.step()
+        
         
         # critic optimizing
         values_dist = self.critic(state_trajectories[:, :-1].detach(), deterministics_trajectories[:, :-1].detach())
@@ -454,7 +453,7 @@ class Dreamer:
 
 if __name__ == "__main__":
     # Load the configuration
-    with open('./configs/gymnasium/Pacman-v5.yml', 'r') as file:
+    with open('./configs/gymnasium/Boxing-v5.yml', 'r') as file:
         config = Dict(yaml.load(file, Loader=yaml.FullLoader))
     
     class DeconstructObsDict(gym.ObservationWrapper):

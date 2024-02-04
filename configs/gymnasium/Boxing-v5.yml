@@ -1,5 +1,5 @@
-device: "mps"
-experiment_name: test1
+device: "cuda"
+experiment_name: Boxing-v5-new
 seed: 0
 
 gymnasium:
@@ -11,28 +11,30 @@ gymnasium:
     norm_obs: True
 
 tensorboard:
-    enable: False
+    enable: True
     log_dir: "./runs/"
     log_frequency: 1  # Log every 1000 steps
 
 wandb:
-    enable: False
+    enable: True
     project: "dreamer"
     entity: "phdminh01"
     log_frequency: 1
 
 video_recording:
-    enable: False
-    record_frequency: 10  #episodes
+    enable: True
+    record_frequency: 100  #episodes
     save_path: "./runs/"
 
 main:
+    continue_loss: False
+    continue_scale_factor: 10
     total_iter: 2000
-    save_freq: 100
-    collect_iter: 50
+    save_freq: 20
+    collect_iter: 100
     data_interact_ep: 1
-    # data_init_ep: 1
-    data_init_ep: 5
+    data_init_ep: 1
+    # data_init_ep: 5
     horizon: 10
     batch_size: 50
     seq_len: 50
