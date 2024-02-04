@@ -30,7 +30,7 @@ from addict import Dict
 # Custom Utility Imports
 import utils.models as models
 from utils.buffer import ReplayBuffer
-from utils.utils import td_lambda
+from utils.utils import td_lambda, td_lambda_exp
 
 # Gymnasium Environment Import
 import gymnasium as gym
@@ -90,7 +90,6 @@ class Dreamer:
                                   self.config.main.hidden_units).to(self.device)
         
         #optimizers
-        self.cont_criterion = nn.BCELoss()
         self.dyna_optimizer = optim.Adam(self.dyna_parameters, lr=self.config.main.dyna_model_lr)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.config.main.actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.config.main.critic_lr)
@@ -166,9 +165,11 @@ class Dreamer:
                 
                 #dynamic learning
                 post, deter = self.dynamic_learning(batch)
+                print('finished dynamic learning')
                 
                 #behavioral learning
                 self.behavioral_learning(post, deter)
+                print('finished behavioral learning')
                 
                 #update step
                 self.gradient_step += 1
@@ -201,37 +202,33 @@ class Dreamer:
         deterministic = torch.zeros((batch_size, self.config.main.deterministic_size)).to(self.device)
         
         #initialized memory storing of sequential gradients data
-        stochastic_size = self.config.main.stochastic_size
+        posteriors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        priors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        deterministics = torch.zeros((batch_size, seq_len-1, self.config.main.deterministic_size)).to(self.device)
         
-        posteriors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        priors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        deterministics = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+        posterior_means = torch.zeros_like(posteriors).to(self.device)
+        posterior_stds = torch.zeros_like(posteriors).to(self.device)
+        prior_means = torch.zeros_like(priors).to(self.device)
+        prior_stds = torch.zeros_like(priors).to(self.device)
 
-        kl_loss = 0
-
-        #now the fun begin, sequentially passing data in
-        #this part I got a lot of inspiration from SimpleDreamer
+        #start passing data through the dynamic model
         for t in (range(1, seq_len)):
             deterministic = self.rssm.recurrent(posterior, b_a[:, t-1, :], deterministic)
             prior_dist, prior = self.rssm.transition(deterministic)
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
             #store gradient data
-            
-            # very important, the order of p, q in kl(p, q) matter
-            # this kl divergence shows how well prior approximate posterior, not the way around
-            kl_loss += torch.distributions.kl.kl_divergence(posterior_dist, prior_dist)
-            
             posteriors[:, t-1, :] = posterior
+            posterior_means[:, t-1, :] = posterior_dist.mean
+            posterior_stds[:, t-1, :] = posterior_dist.scale
             
             priors[:, t-1, :] = prior
+            prior_means[:, t-1, :] = prior_dist.mean
+            prior_stds[:, t-1, :] = prior_dist.scale
             
             deterministics[:, t-1, :] = deterministic
             
-            
         #we start optimizing model with the provided data
-        #KL loss KL(p, q)
-        kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
         
         #reconstruction loss
         # reshape to 4 dimension because Mac Metal can only handle up to 4 dimensions
@@ -243,7 +240,6 @@ class Dreamer:
         target = b_obs[:, 1:]
         if mps_flatten:
             target = target.reshape(-1, *self.obs_size)
-        
         reconstruct_loss = reconstruct_dist.log_prob(target).mean()
         
         #reward loss
@@ -253,8 +249,27 @@ class Dreamer:
         rewards_loss = rewards_dist.log_prob(b_r[:, 1:]).mean()
         
         #continuity loss (Bernoulli)
-        continue_dist = self.cont_net(posteriors, deterministics)
-        continue_loss = self.cont_criterion(continue_dist.probs, 1 - b_d[:, 1:])
+        
+        continue_loss = 0
+        if self.config.main.continue_loss:
+            # calculate log prob manually as tensorflow doesn't support float value in logprob of Bernoulli
+            cont_logits, _ = self.cont_net(posteriors, deterministics)
+            cont_target = b_d[:, 1:] * self.config.main.discount
+            probs = torch.sigmoid(cont_logits)
+            log_prob = cont_target * torch.log(probs) + (1 - cont_target) * torch.log(1 - probs)
+            continue_loss = self.config.main.continue_scale_factor * log_prob.mean()
+        
+        #kl loss
+        priors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(prior_means, prior_stds), 1
+        )
+        posteriors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(posterior_means, posterior_stds), 1
+        )
+        kl_loss = torch.max(
+            torch.mean(torch.distributions.kl.kl_divergence(posteriors_dist, priors_dist)),
+            torch.tensor(self.config.main.free_nats).to(self.device)
+        )
         
         total_loss = self.config.main.kl_divergence_scale * kl_loss - reconstruct_loss - rewards_loss + continue_loss
         
@@ -307,18 +322,38 @@ class Dreamer:
             deterministics_trajectories[:, t, :] = deterministics
         
         #now we update actor and critic
+        
+        #actor update
         rewards = self.reward(state_trajectories, deterministics_trajectories)
         rewards_dist = torch.distributions.Normal(rewards, 1)
         rewards_dist = torch.distributions.Independent(rewards_dist, 1)
-        rewards = rewards_dist.mean
-        continues = self.cont_net(state_trajectories, deterministics_trajectories).mean
-        values = self.critic(state_trajectories, deterministics_trajectories).mean        
+        rewards = rewards_dist.mode
         
-        #bootstrapping td_value
-        returns = td_lambda(rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
+        if self.config.main.continue_loss:
+            _, conts_dist = self.cont_net(state_trajectories, deterministics_trajectories)
+            continues = conts_dist.mean
+        else:
+            continues = self.config.main.discount * torch.ones_like(rewards)
+        
+        values = self.critic(state_trajectories, deterministics_trajectories).mode
+        
+        returns = td_lambda_exp(
+            rewards,
+            continues,
+            values,
+            self.config.main.lambda_,
+            self.device
+        )
+        
+        discount = torch.cumprod(torch.cat((
+            torch.ones_like(continues[:, :1]).to(self.device),
+            continues[:, :-2]
+        ), 1), 1).detach()
+        
+        # returns = td_lambda(rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
         
         # actor optimizing
-        actor_loss = -returns.mean()
+        actor_loss = -(discount * returns).mean()
         
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -331,7 +366,8 @@ class Dreamer:
         
         # critic optimizing
         values_dist = self.critic(state_trajectories[:, :-1].detach(), deterministics_trajectories[:, :-1].detach())
-        critic_loss = -values_dist.log_prob(returns.detach()).mean()
+        
+        critic_loss = -(discount.squeeze() * values_dist.log_prob(returns.detach())).mean()
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -477,7 +513,10 @@ if __name__ == "__main__":
     env = gym.make(env_id, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)
     if config.video_recording.enable:
-       env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0)   
+       env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0) 
+    if config.gymnasium.pixels:
+        env = gym.wrappers.PixelObservationWrapper(env)
+        env = DeconstructObsDict(env)    
     env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
     env = channelFirst(env)
     env = TanhRewardWrapper(env)
@@ -487,5 +526,4 @@ if __name__ == "__main__":
     
     agent = Dreamer(config=config, env=env, writer=writer, logpath=config.tensorboard.log_dir + local_path)
     agent.train()
-    
     env.close()

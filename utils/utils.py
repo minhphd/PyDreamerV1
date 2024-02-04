@@ -53,3 +53,29 @@ def td_lambda(rewards, dones, values, lamda_val, discount_val, device):
         td_lambda[:, t] = future_return
 
     return td_lambda
+
+
+def td_lambda_exp(rewards, predicted_discount, values, lambda_val, device):
+    """
+    Compute the TD(λ) returns for value estimation.
+
+    Args:
+    - states (Tensor): Tensor of states with shape [batch_size, time_steps, state_dim].
+    - rewards (Tensor): Tensor of rewards with shape [batch_size, time_steps].
+    - predicted_discount (Tensor): Tensor indicating probability of episode termination with shape [batch_size, time_steps].
+    - values (Tensor): Tensor of value estimates with shape [batch_size, time_steps].
+    - lamda_val (float): The λ parameter in TD(λ) controlling bias-variance tradeoff.
+
+    Returns:
+    - td_lambda (Tensor): The computed lambda returns with shape [batch_size, time_steps - 1].
+    """
+    last_lambda = 0
+    lambda_targets = torch.zeros_like((rewards[:, :-1])).to(device)
+    
+    HORIZON = rewards.size(1)
+    for step in reversed(range(HORIZON-1)):
+        delta = rewards[:, step] + values[:, step + 1] * predicted_discount[:, step]
+        last_lambda = delta + lambda_val * predicted_discount[:, step] * last_lambda
+        lambda_targets[:, step] = last_lambda
+        
+    return lambda_targets

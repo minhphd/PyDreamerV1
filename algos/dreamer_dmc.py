@@ -200,7 +200,6 @@ class Dreamer:
         posterior = torch.zeros((batch_size, self.config.main.stochastic_size)).to(self.device)
         deterministic = torch.zeros((batch_size, self.config.main.deterministic_size)).to(self.device)
         
-        #initialized memory storing of sequential gradients data
         posteriors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
         priors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
         deterministics = torch.zeros((batch_size, seq_len-1, self.config.main.deterministic_size)).to(self.device)
@@ -209,7 +208,6 @@ class Dreamer:
         posterior_stds = torch.zeros_like(posteriors).to(self.device)
         prior_means = torch.zeros_like(priors).to(self.device)
         prior_stds = torch.zeros_like(priors).to(self.device)
-        kl_loss = 0
 
         #now the fun begin, sequentially passing data in
         #this part I got a lot of inspiration from SimpleDreamer
@@ -218,9 +216,6 @@ class Dreamer:
             prior_dist, prior = self.rssm.transition(deterministic)
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
-            #store gradient data
-            # kl_loss += torch.distributions.kl.kl_divergence(prior_dist, posterior_dist)
-            
             posteriors[:, t-1, :] = posterior
             posterior_means[:, t-1, :] = posterior_dist.mean
             posterior_stds[:, t-1, :] = posterior_dist.scale
@@ -232,16 +227,15 @@ class Dreamer:
             deterministics[:, t-1, :] = deterministic
             
         #we start optimizing model with the provided data
-        #KL loss KL(p, q)
-        # kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
         priors_dist = torch.distributions.Independent(
             torch.distributions.Normal(prior_means, prior_stds), 1
         )
         posteriors_dist = torch.distributions.Independent(
-            torch.distributions.Normal(prior_means, prior_stds), 1
+            torch.distributions.Normal(posterior_means, posterior_stds), 1
         )
         kl_loss = torch.max(
-            torch.mean(torch.distributions.kl.kl_divergence(posteriors_dist, priors_dist))
+            torch.mean(torch.distributions.kl.kl_divergence(posteriors_dist, priors_dist)),
+            torch.tensor(self.config.main.free_nats).to(self.device)
         )
         
         #reconstruction loss
