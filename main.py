@@ -53,11 +53,11 @@ if config.wandb.enable:
     wandb_writer.log(artifact)
 
 if 'ALE' in config.env.env_id:
-    env = gym.make(env_id, 1000, render_mode='rgb_array')
+    env = gym.make(env_id, render_mode='rgb_array')
     env = AtariPreprocess(env, config.env.new_obs_size, 
                           config.video_recording.enable, 
                           record_path=config.tensorboard.log_dir + local_path + '/videos/', 
-                          record_freq=2)
+                          record_freq=config.video_recording.record_frequency)
 else:
     task = config.env.task
     local_path += f"{task}/"
