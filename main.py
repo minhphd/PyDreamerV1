@@ -48,9 +48,9 @@ if config.wandb.enable:
         monitor_gym=True,
         save_code=True,
     )
-    artifact = wandb.Artifact(name="my_data", type="dataset")
-    artifact.add_dir(local_path="./dataset.h5")  
-    wandb_writer.log(artifact)
+    # artifact = wandb.Artifact(name="my_data", type="dataset")
+    # artifact.add_dir(local_path='configs/' + config_path)  
+    # wandb_writer.log(artifact)
 
 if 'ALE' in config.env.env_id:
     env = gym.make(env_id, render_mode='rgb_array')

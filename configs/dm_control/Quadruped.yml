@@ -1,12 +1,11 @@
 device: "cuda"
-experiment_name: Pacman-v5
+experiment_name: Quadruped
 seed: 0
 
 env:
-    env_id: ALE/MsPacman-v5
-    channel_first: True
-    discrete: True
-    resize_obs: True
+    env_id: quadruped
+    task: walk
+    discrete: False
     new_obs_size: [64, 64]
     norm_obs: True
 
@@ -23,11 +22,10 @@ wandb:
 
 video_recording:
     enable: True
-    record_frequency: 100  #episodes
-    save_path: "./runs/"
+    record_frequency: 50  #episodes
 
 main:
-    continue_loss: True
+    continue_loss: False
     continue_scale_factor: 10
     total_iter: 2000
     save_freq: 20
@@ -51,10 +49,10 @@ main:
     dyna_model_lr : 6.0e-4
     grad_norm_type : 2
     clip_grad : 100
-    
-    hidden_units: 400
-    deterministic_size : 600
-    stochastic_size : 600
+
+    hidden_units: 300
+    deterministic_size : 200
+    stochastic_size : 30
     embedded_obs_size : 1024
     buffer_capacity : 500000
 

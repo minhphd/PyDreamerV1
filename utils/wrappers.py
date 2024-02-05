@@ -1,3 +1,13 @@
+"""
+Author: Minh Pham-Dinh
+Created: Feb 4th, 2024
+Last Modified: Feb 5th, 2024
+Email: mhpham26@colby.edu
+
+Description:
+    File containing wrappers for different environment types.
+"""
+
 import gymnasium as gym
 from dm_control import suite
 from dm_control.suite.wrappers import pixels
