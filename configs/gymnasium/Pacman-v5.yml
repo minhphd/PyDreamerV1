@@ -1,9 +1,9 @@
-device: "mps"
-experiment_name: test1
+device: "cuda"
+experiment_name: Pacman-v5
 seed: 0
 
-gymnasium:
-    env_id: ALE/Boxing-v5
+env:
+    env_id: ALE/MsPacman-v5
     channel_first: True
     discrete: True
     resize_obs: True
@@ -16,24 +16,26 @@ tensorboard:
     log_frequency: 1  # Log every 1000 steps
 
 wandb:
-    enable: False
+    enable: True
     project: "dreamer"
     entity: "phdminh01"
     log_frequency: 1
 
 video_recording:
-    enable: False
-    record_frequency: 10  #episodes
+    enable: True
+    record_frequency: 100  #episodes
     save_path: "./runs/"
 
 main:
+    continue_loss: True
+    continue_scale_factor: 10
     total_iter: 2000
-    save_freq: 100
-    collect_iter: 50
+    save_freq: 20
+    collect_iter: 100
     data_interact_ep: 1
     # data_init_ep: 1
     data_init_ep: 5
-    horizon: 10
+    horizon: 15
     batch_size: 50
     seq_len: 50
     eval_eps: 3
@@ -44,7 +46,6 @@ main:
     discount : 0.99
     lambda_ : 0.95
     
-    use_continue_flag : True
     actor_lr : 8.0e-5
     critic_lr : 8.0e-5
     dyna_model_lr : 6.0e-4

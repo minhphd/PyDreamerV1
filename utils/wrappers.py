@@ -1,10 +1,19 @@
+"""
+Author: Minh Pham-Dinh
+Created: Feb 4th, 2024
+Last Modified: Feb 5th, 2024
+Email: mhpham26@colby.edu
+
+Description:
+    File containing wrappers for different environment types.
+"""
+
 import gymnasium as gym
 from dm_control import suite
 from dm_control.suite.wrappers import pixels
 import numpy as np
 import cv2
 import os
-from utils.utils import get_obs
 
 class DMCtoGymWrapper(gym.Env):
     """
@@ -21,7 +30,7 @@ class DMCtoGymWrapper(gym.Env):
         record_path (str, optional): Path to save recorded videos. Defaults to '../'.
         max_episode_steps (int, optional): Maximum steps per episode for truncation. Defaults to 1000.
     """
-    def __init__(self, domain_name, task_name, task_kwargs=None, visualize_reward=False, resize=[3, 64,64], record=False, record_freq=100, record_path='../', max_episode_steps=1000):
+    def __init__(self, domain_name, task_name, task_kwargs=None, visualize_reward=False, resize=[64,64], record=False, record_freq=100, record_path='../', max_episode_steps=1000):
         super().__init__()
         self.env = suite.load(domain_name, task_name, task_kwargs=task_kwargs, visualize_reward=visualize_reward)
         self.episode_count = -1
@@ -39,12 +48,12 @@ class DMCtoGymWrapper(gym.Env):
         
         # Initialize the pixels wrapper for observation space
         self.env = pixels.Wrapper(self.env, pixels_only=True)
-        obs_shape = tuple(resize)  # Assuming RGB images
-        self.observation_space = gym.spaces.Box(low=-0.5, high=+0.5, shape=obs_shape, dtype=np.float32)
+        self.resize = resize  # Assuming RGB images
+        self.observation_space = gym.spaces.Box(low=-0.5, high=+0.5, shape=(3, *resize), dtype=np.float32)
 
     def step(self, action):
         time_step = self.env.step(action)
-        obs = get_obs(self.env, self.observation_space.shape[1:])
+        obs = self._get_obs(self.env)
         
         reward = time_step.reward if time_step.reward is not None else 0
         self.total_reward += (reward or 0)
@@ -77,7 +86,7 @@ class DMCtoGymWrapper(gym.Env):
         self.episode_count += 1
         
         time_step = self.env.reset()
-        obs = get_obs(self.env, self.observation_space.shape[1:])
+        obs = self._get_obs(self.env)
 
         if self.record and self.episode_count % self.record_freq == 0:
             self._start_recording(time_step.observation['pixels'])
@@ -96,6 +105,72 @@ class DMCtoGymWrapper(gym.Env):
         if self.recorder:
             self.recorder.release()
             self.recorder = None
+            
+    def _get_obs(self, env):
+        obs = env.physics.render(*self.resize)
+        obs = obs/255 - 0.5
+        rearranged_obs = obs.transpose([2,0,1])
+        return rearranged_obs
 
     def render(self, mode='rgb_array'):
         return self.env.physics.render(camera_id=0)  # Adjust camera_id based on the environment
+
+
+class AtariPreprocess(gym.Wrapper):
+    """
+    A custom Gym wrapper that integrates multiple environment processing steps:
+    - Records episode statistics and videos.
+    - Resizes observations to a specified shape.
+    - Scales and reorders observation channels.
+    - Scales rewards using the tanh function.
+
+    Parameters:
+    - env (gym.Env): The original environment to wrap.
+    - new_obs_size (tuple): The target size for observation resizing (height, width).
+    - record (bool): If True, enable video recording.
+    - record_path (str): The directory path where videos will be saved.
+    - record_freq (int): Frequency (in episodes) at which to record videos.
+    """
+    def __init__(self, env, new_obs_size, record=False, record_path='../videos/', record_freq=100):
+        super().__init__(env)
+        self.env = gym.wrappers.RecordEpisodeStatistics(env)
+        
+        if record:
+            self.env = gym.wrappers.RecordVideo(self.env, record_path, episode_trigger=lambda episode_id: episode_id % record_freq == 0)
+        self.env = gym.wrappers.ResizeObservation(self.env, shape=new_obs_size)
+        
+        self.new_obs_size = new_obs_size
+        self.observation_space = gym.spaces.Box(
+            low=-0.5, high=0.5, 
+            shape=(3, new_obs_size[0], new_obs_size[1]), 
+            dtype=np.float32
+        )
+
+    def step(self, action):
+        obs, reward, termination, truncation, info = super().step(action)
+        obs = self.process_observation(obs)
+        reward = np.tanh(reward)  # Scale reward
+        return obs, reward, termination, truncation, info
+
+    def reset(self, **kwargs):
+        obs, info = super().reset(**kwargs)
+        obs = self.process_observation(obs)
+        return obs, info
+
+    def process_observation(self, observation):
+        """
+        Process and return the observation from the environment.
+        - Scales pixel values to the range [-0.5, 0.5].
+        - Reorders channels to CHW format (channels, height, width).
+
+        Parameters:
+        - observation (np.ndarray): The original observation from the environment.
+
+        Returns:
+        - np.ndarray: The processed observation.
+        """
+        if 'pixels' in observation:
+            observation = observation['pixels']
+        observation = observation / 255.0 - 0.5
+        observation = np.transpose(observation, (2, 0, 1))
+        return observation

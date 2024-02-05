@@ -1,28 +1,30 @@
-device: "cuda"
-experiment_name: Cart-pole
+device: "mps"
+experiment_name: Boxing-v5-new
 seed: 0
 
 env:
-    env_id: cartpole
-    task: balance
-    discrete: False
+    env_id: ALE/Boxing-v5
+    channel_first: True
+    discrete: True
+    resize_obs: True
     new_obs_size: [64, 64]
     norm_obs: True
 
 tensorboard:
-    enable: False
+    enable: True
     log_dir: "./runs/"
     log_frequency: 1  # Log every 1000 steps
 
 wandb:
-    enable: True
+    enable: False
     project: "dreamer"
     entity: "phdminh01"
     log_frequency: 1
 
 video_recording:
     enable: True
-    record_frequency: 50  #episodes
+    record_frequency: 100  #episodes
+    save_path: "./runs/"
 
 main:
     continue_loss: False
@@ -31,9 +33,9 @@ main:
     save_freq: 20
     collect_iter: 100
     data_interact_ep: 1
-    # data_init_ep: 1
-    data_init_ep: 5
-    horizon: 15
+    data_init_ep: 1
+    # data_init_ep: 5
+    horizon: 10
     batch_size: 50
     seq_len: 50
     eval_eps: 3
@@ -44,15 +46,16 @@ main:
     discount : 0.99
     lambda_ : 0.95
     
+    use_continue_flag : True
     actor_lr : 8.0e-5
     critic_lr : 8.0e-5
     dyna_model_lr : 6.0e-4
     grad_norm_type : 2
     clip_grad : 100
-
-    hidden_units: 300
-    deterministic_size : 200
-    stochastic_size : 30
+    
+    hidden_units: 400
+    deterministic_size : 600
+    stochastic_size : 600
     embedded_obs_size : 1024
     buffer_capacity : 500000
 

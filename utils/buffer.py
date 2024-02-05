@@ -18,7 +18,7 @@ import torch
 from addict import Dict
 
 class ReplayBuffer:
-    def __init__(self, capacity, obs_size, action_size, discrete: bool):
+    def __init__(self, capacity, obs_size, action_size):
         
         # check if the env is gymnasium or dmc
         self.obs_size = obs_size

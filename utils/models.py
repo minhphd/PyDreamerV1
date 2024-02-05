@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Jan 26th, 2024
-Last Modified: Jan 26th, 2024
+Last Modified: Feb 5th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -170,7 +170,7 @@ class ConvEncoder(nn.Module):
             batch_shape = (1, )
         
         x = x.reshape(-1, *self.input_shape)
-            
+        
         out = self.conv_layer(x)
         
         #flatten output
@@ -327,7 +327,7 @@ class ContinuoNet(nn.Module):
         x = x.reshape(-1, x.shape[-1])
         
         x = self.net(x).reshape(*batch_shape, 1)
-        return torch.distributions.Bernoulli(logits=x)
+        return x, torch.distributions.Independent(torch.distributions.Bernoulli(logits=x), 1)
     
     
 class Actor(nn.Module):

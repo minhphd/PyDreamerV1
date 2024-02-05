@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Jan 27th, 2024
-Last Modified: Jan 27th, 2024
+Last Modified: Feb 5th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -17,43 +17,33 @@ import os
 import numpy as np
 import yaml
 from tqdm import tqdm
-import pickle
-from datetime import datetime
+import wandb
 
 # Machine Learning and Data Processing Imports
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
-from addict import Dict
 
 # Custom Utility Imports
 import utils.models as models
 from utils.buffer import ReplayBuffer
-from utils.utils import td_lambda
+from utils.utils import td_lambda, log_metrics
 
-# Gymnasium Environment Import
-import gymnasium as gym
-
-# Set random seed for reproducibility
-SEED = 123
-np.random.seed(SEED)
-torch.manual_seed(SEED)
 
 class Dreamer:
-    def __init__(self, config, logpath, env: gym.Env, writer: SummaryWriter = None):
+    def __init__(self, config, logpath, env, writer = None, wandb_writer=None):
         self.config = config
         self.device = torch.device(self.config.device)
         self.env = env
         self.obs_size = env.observation_space.shape
-        self.action_size = env.action_space.n if self.config.gymnasium.discrete else env.action_space.shape[0]
+        self.action_size = env.action_space.n if self.config.env.discrete else env.action_space.shape[0]
         self.epsilon = self.config.main.epsilon_start
         self.env_step = 0
         self.logpath = logpath
         
-        # flip n_channels to first
-        if len(self.obs_size) == 3:
-            self.obs_size = (self.obs_size[-1], self.obs_size[0], self.obs_size[1])
+        # Set random seed for reproducibility
+        np.random.seed(self.config.seed)
+        torch.manual_seed(self.config.seed)
         
         #dynamic networks initialized
         self.rssm = models.RSSM(self.config.main.stochastic_size, 
@@ -65,9 +55,9 @@ class Dreamer:
         self.reward = models.RewardNet(self.config.main.stochastic_size + self.config.main.deterministic_size,
                                        self.config.main.hidden_units).to(self.device)
         
-        # make this optional in the future
-        self.cont_net = models.ContinuoNet(self.config.main.stochastic_size + self.config.main.deterministic_size,
-                                       self.config.main.hidden_units).to(self.device)
+        if self.config.main.continue_loss:
+            self.cont_net = models.ContinuoNet(self.config.main.stochastic_size + self.config.main.deterministic_size,
+                                        self.config.main.hidden_units).to(self.device)
         
         self.encoder = models.ConvEncoder(input_shape=self.obs_size).to(self.device)
         self.decoder = models.ConvDecoder(self.config.main.stochastic_size,
@@ -85,25 +75,30 @@ class Dreamer:
         self.actor = models.Actor(self.config.main.stochastic_size + self.config.main.deterministic_size,
                                   self.config.main.hidden_units,
                                   self.action_size,
-                                  self.config.gymnasium.discrete).to(self.device)
+                                  self.config.env.discrete).to(self.device)
         self.critic = models.Critic(self.config.main.stochastic_size + self.config.main.deterministic_size,
                                   self.config.main.hidden_units).to(self.device)
         
         #optimizers
-        self.cont_criterion = nn.BCELoss()
         self.dyna_optimizer = optim.Adam(self.dyna_parameters, lr=self.config.main.dyna_model_lr)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.config.main.actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.config.main.critic_lr)
         self.gradient_step = 0
         
         #buffer
-        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.gymnasium.discrete)
+        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.env.discrete)
         
         #tracking stuff
+        self.wandb_writer = wandb_writer
         self.writer = writer
     
     
     def update_epsilon(self):
+        """In use for decaying epsilon in discrete env
+
+        Returns:
+            _type_: _description_
+        """
         eps_start = self.config.main.epsilon_start
         eps_end = self.config.main.epsilon_end
         decay_steps = self.config.main.eps_decay_steps
@@ -117,25 +112,29 @@ class Dreamer:
         Returns:
             _type_: _description_
         """
-            
+
+        #prefill dataset
         ep = 0
         obs, _ = self.env.reset()
         while ep < self.config.main.data_init_ep:
             action = self.env.action_space.sample()
-            if self.config.gymnasium.discrete:  
+            if self.config.env.discrete:  
                 actions = np.zeros((self.action_size, ))
                 actions[action] = 1.0
             else:
-                actions = np.array([1.0/self.action_size for _ in range(self.action_size)])
+                actions = action
                 
             next_obs, reward, termination, truncation, info = self.env.step(action)
         
-            self.buffer.add(obs, actions, reward, termination | truncation)
-            obs = next_obs     
+            self.buffer.add(obs, actions, reward, termination or truncation)
+            obs = next_obs
+            
             if "episode" in info:
                 obs, _ = self.env.reset()
                 ep += 1
                 print(ep)
+                if 'video_path' in info and self.wandb_writer:
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
                 
         #main train loop
         for _ in tqdm(range(self.config.main.total_iter)):
@@ -144,8 +143,7 @@ class Dreamer:
                 
                 #check if models folder exist
                 directory = self.logpath + 'models/'
-                if not os.path.exists(os.path.dirname(directory)):
-                    os.makedirs(directory)
+                os.makedirs(directory, exist_ok=True)
                 
                 #save models
                 torch.save(self.rssm, self.logpath + 'models/rssm_model')
@@ -157,7 +155,8 @@ class Dreamer:
             #run eval if reach eval checkpoint
             if _ % self.config.main.eval_freq == 0:
                 eval_score = self.data_collection(self.config.main.eval_eps, eval=True)
-                self.writer.add_scalar('performance/evaluation score', eval_score, self.env_step)
+                metrics = {'performance/evaluation score': eval_score}
+                log_metrics(metrics, self.env_step, self.writer, self.wandb_writer)
             
             #training step
             for c in tqdm(range(self.config.main.collect_iter)):
@@ -187,7 +186,13 @@ class Dreamer:
             batch (addict.Dict): batches of data
         """
         
-        #unpack
+        '''
+        We unpack the batch. A batch contains:
+        - b_obs (batch_size, seq_len, *obs.shape): batches of observation
+        - b_a (batch_size, seq_len, 1): batches of action
+        - b_r (batch_size, seq_len, 1): batches of rewards
+        - b_d (batch_size, seq_len, 1): batches of termination signal
+        '''
         b_obs = batch.obs
         b_a = batch.actions
         b_r = batch.rewards
@@ -201,40 +206,40 @@ class Dreamer:
         deterministic = torch.zeros((batch_size, self.config.main.deterministic_size)).to(self.device)
         
         #initialized memory storing of sequential gradients data
-        stochastic_size = self.config.main.stochastic_size
+        posteriors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        priors = torch.zeros((batch_size, seq_len-1, self.config.main.stochastic_size)).to(self.device)
+        deterministics = torch.zeros((batch_size, seq_len-1, self.config.main.deterministic_size)).to(self.device)
         
-        posteriors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        priors = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
-        deterministics = torch.zeros((batch_size, seq_len-1, stochastic_size)).to(self.device)
+        posterior_means = torch.zeros_like(posteriors).to(self.device)
+        posterior_stds = torch.zeros_like(posteriors).to(self.device)
+        prior_means = torch.zeros_like(priors).to(self.device)
+        prior_stds = torch.zeros_like(priors).to(self.device)
 
-        kl_loss = 0
-
-        #now the fun begin, sequentially passing data in
-        #this part I got a lot of inspiration from SimpleDreamer
+        #start passing data through the dynamic model
         for t in (range(1, seq_len)):
             deterministic = self.rssm.recurrent(posterior, b_a[:, t-1, :], deterministic)
             prior_dist, prior = self.rssm.transition(deterministic)
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
-            #store gradient data
-            
-            # very important, the order of p, q in kl(p, q) matter
-            # this kl divergence shows how well prior approximate posterior, not the way around
-            kl_loss += torch.distributions.kl.kl_divergence(posterior_dist, prior_dist)
-            
+            '''
+            store recurrent data
+            data are shifted 1 timestep ahead. Start from the second timestep or t=1
+            '''
             posteriors[:, t-1, :] = posterior
+            posterior_means[:, t-1, :] = posterior_dist.mean
+            posterior_stds[:, t-1, :] = posterior_dist.scale
             
             priors[:, t-1, :] = prior
+            prior_means[:, t-1, :] = prior_dist.mean
+            prior_stds[:, t-1, :] = prior_dist.scale
             
             deterministics[:, t-1, :] = deterministic
             
-            
         #we start optimizing model with the provided data
-        #KL loss KL(p, q)
-        kl_loss = torch.max(torch.tensor(self.config.main.free_nats).to(self.device), kl_loss.mean())
         
-        #reconstruction loss
-        # reshape to 4 dimension because Mac Metal can only handle up to 4 dimensions
+        '''
+        Reconstruction loss. This loss helps the model learn to encode pixels observation.
+        '''
         mps_flatten = False
         if self.device == torch.device("mps"):
             mps_flatten = True
@@ -243,7 +248,6 @@ class Dreamer:
         target = b_obs[:, 1:]
         if mps_flatten:
             target = target.reshape(-1, *self.obs_size)
-        
         reconstruct_loss = reconstruct_dist.log_prob(target).mean()
         
         #reward loss
@@ -252,9 +256,31 @@ class Dreamer:
         rewards_dist = torch.distributions.Independent(rewards_dist, 1)
         rewards_loss = rewards_dist.log_prob(b_r[:, 1:]).mean()
         
-        #continuity loss (Bernoulli)
-        continue_dist = self.cont_net(posteriors, deterministics)
-        continue_loss = self.cont_criterion(continue_dist.probs, 1 - b_d[:, 1:])
+        '''
+        Continuity loss. This loss term helps predict the probability of an episode terminate at a particular state
+        '''
+        if self.config.main.continue_loss:
+            # calculate log prob manually as tensorflow doesn't support float value in logprob of Bernoulli
+            # follow closely to Hafner's official code for Dreamer
+            cont_logits, _ = self.cont_net(posteriors, deterministics)
+            cont_target = (1 - b_d[:, 1:]) * self.config.main.discount
+            continue_loss = torch.nn.functional.binary_cross_entropy_with_logits(cont_logits, cont_target)
+        else:
+            continue_loss = torch.zeros((1)).to(self.device)
+        
+        '''
+        KL loss. Matching the distribution of transition and representation model. This is to ensure we have the accurate transition model for use in imagination process
+        '''
+        priors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(prior_means, prior_stds), 1
+        )
+        posteriors_dist = torch.distributions.Independent(
+            torch.distributions.Normal(posterior_means, posterior_stds), 1
+        )
+        kl_loss = torch.max(
+            torch.mean(torch.distributions.kl.kl_divergence(posteriors_dist, priors_dist)),
+            torch.tensor(self.config.main.free_nats).to(self.device)
+        )
         
         total_loss = self.config.main.kl_divergence_scale * kl_loss - reconstruct_loss - rewards_loss + continue_loss
         
@@ -268,11 +294,15 @@ class Dreamer:
         self.dyna_optimizer.step()
         
         #tensorboard logging
-        self.writer.add_scalar('Dynamic_model/KL', kl_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Reconstruction', reconstruct_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Reward', rewards_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Continue', continue_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Dynamic_model/Total', total_loss.item(), self.gradient_step)
+        metrics = {
+            'Dynamic_model/KL': kl_loss.item(),
+            'Dynamic_model/Reconstruction': reconstruct_loss.item(),
+            'Dynamic_model/Reward': rewards_loss.item(),
+            'Dynamic_model/Continue': continue_loss.item(),
+            'Dynamic_model/Total': total_loss.item()
+        }
+        
+        log_metrics(metrics, self.gradient_step, self.writer, self.wandb_writer)
         
         return posteriors.detach(), deterministics.detach()
     
@@ -282,11 +312,11 @@ class Dreamer:
 
         Args:
             self (_type_): _description_
-            state (batch_size, seq_len, stoch_state_size): starting point state
-            deterministics (batch_size, seq_len, stoch_state_size)
+            state (batch_size, seq_len-1, stoch_state_size): starting point state
+            deterministics (batch_size, seq_len-1, stoch_state_size)
         """
         
-        #flatten the batches
+        #flatten the batches --> new size (batch_size * (seq_len-1), *)
         state = state.reshape(-1, self.config.main.stochastic_size)
         deterministics = deterministics.reshape(-1, self.config.main.deterministic_size)
         
@@ -306,19 +336,46 @@ class Dreamer:
             state_trajectories[:, t, :] = state
             deterministics_trajectories[:, t, :] = deterministics
         
-        #now we update actor and critic
+        '''
+        After imagining, we have both the state trajectories and deterministic trajectories, which can be used to create latent states.
+        - state_trajectories (N, HORIZON_LEN)
+        - deteerministic_trajectories (N, HORIZON_LEN)
+        '''
+        
+        #actor update
+        
+        #compute rewards for each trajectories
         rewards = self.reward(state_trajectories, deterministics_trajectories)
         rewards_dist = torch.distributions.Normal(rewards, 1)
         rewards_dist = torch.distributions.Independent(rewards_dist, 1)
-        rewards = rewards_dist.mean
-        continues = self.cont_net(state_trajectories, deterministics_trajectories).mean
-        values = self.critic(state_trajectories, deterministics_trajectories).mean        
+        rewards = rewards_dist.mode
         
-        #bootstrapping td_value
-        returns = td_lambda(rewards, continues, values, self.config.main.lambda_, self.config.main.discount, self.device)
+        if self.config.main.continue_loss:
+            _, conts_dist = self.cont_net(state_trajectories, deterministics_trajectories)
+            continues = conts_dist.mean
+        else:
+            continues = self.config.main.discount * torch.ones_like(rewards)
+        
+        values = self.critic(state_trajectories, deterministics_trajectories).mode
+        
+        #calculate trajectories returns
+        #returns should have shape (N, HORIZON_LEN - 1, 1) (last values are ignored due to nature of bootstrapping)
+        returns = td_lambda(
+            rewards,
+            continues,
+            values,
+            self.config.main.lambda_,
+            self.device
+        )
+        
+        #culm product for discount
+        discount = torch.cumprod(torch.cat((
+            torch.ones_like(continues[:, :1]).to(self.device),
+            continues[:, :-2]
+        ), 1), 1).detach()
         
         # actor optimizing
-        actor_loss = -returns.mean()
+        actor_loss = -(discount * returns).mean()
         
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -329,9 +386,11 @@ class Dreamer:
         )
         self.actor_optimizer.step()
         
+        
         # critic optimizing
         values_dist = self.critic(state_trajectories[:, :-1].detach(), deterministics_trajectories[:, :-1].detach())
-        critic_loss = -values_dist.log_prob(returns.detach()).mean()
+        
+        critic_loss = -(discount.squeeze() * values_dist.log_prob(returns)).mean()
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -342,10 +401,14 @@ class Dreamer:
         )
         self.critic_optimizer.step()
         
-        self.writer.add_scalar('Behavorial_model/Actor', actor_loss.item(), self.gradient_step)
-        self.writer.add_scalar('Behavorial_model/Critic', critic_loss.item(), self.gradient_step)
+        metrics = {
+            'Behavorial_model/Actor': actor_loss.item(),
+            'Behavorial_model/Critic': critic_loss.item()
+        }
         
-            
+        log_metrics(metrics, self.gradient_step, self.writer, self.wandb_writer)
+        
+        
     @torch.no_grad()
     def data_collection(self, num_episodes, eval=False):
         """data collection method. Roll out agent a number of episodes and collect data
@@ -357,12 +420,11 @@ class Dreamer:
             random (bool): Random mode. Defaults to False.
 
         Returns:
-            _type_: _description_
+            average_score: average score over number of rollout episodes
         """
         score = 0
         ep = 0
         obs, _ = self.env.reset()
-        
         #initialized all zeros
         posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
         deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
@@ -377,7 +439,7 @@ class Dreamer:
             # add exploration noise if not in evaluation mode
             if not eval:
                 actions = actor_out.cpu().numpy()
-                if self.config.gymnasium.discrete:
+                if self.config.env.discrete:
                     if np.random.rand() < self.epsilon:
                         action = self.env.action_space.sample()
                     else:
@@ -390,7 +452,7 @@ class Dreamer:
                     action = (actions + noise)[0]
             else:
                 actions = actor_out.cpu().numpy()
-                if self.config.gymnasium.discrete:
+                if self.config.env.discrete:
                     action = np.argmax(actions)
                 else:
                     action = actions[0]
@@ -408,84 +470,13 @@ class Dreamer:
                 score += cur_score
                 obs, _ = self.env.reset()
                 ep += 1
-                self.writer.add_scalar('performance/training score', cur_score, self.env_step)
+                
+                if 'video_path' in info and self.wandb_writer:
+                    self.wandb_writer.log({'performance/videos': wandb.Video(info['video_path'], format='webm')})
+                log_metrics({'performance/training score': cur_score}, self.env_step, self.writer, self.wandb_writer)
+                
                 posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
                 deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
                 action = torch.zeros((1, self.action_size)).to(self.device)
             
         return score/num_episodes
-    
-
-if __name__ == "__main__":
-    # Load the configuration
-    with open('./configs/gymnasium/Pacman-v5.yml', 'r') as file:
-        config = Dict(yaml.load(file, Loader=yaml.FullLoader))
-    
-    class DeconstructObsDict(gym.ObservationWrapper):
-        def __init__(self, env):
-            super().__init__(env)
-            # Update the observation space to reflect the changes
-            obs_space = env.observation_space['pixels']
-            self.observation_space = gym.spaces.Box(low=obs_space.low, high=obs_space.high, dtype=obs_space.dtype)
-
-        def observation(self, observation):
-            # Extract and return the pixel data
-            return observation['pixels'] 
-    
-    # some wrappers
-    class channelFirst(gym.ObservationWrapper):
-        def __init__(self, env: gym.Env):
-            gym.ObservationWrapper.__init__(self, env)
-            
-        def observation(self, observation):
-            observation = (observation / 255) - 0.5
-            return observation.transpose([2,0,1])
-
-    class TanhRewardWrapper(gym.RewardWrapper):
-        def __init__(self, env):
-            super().__init__(env)
-
-        def reward(self, reward):
-            # Apply tanh to the reward to bound it
-            return np.tanh(reward)
-
-    env_id = config.gymnasium.env_id
-    experiment_name = config.experiment_name
-    
-    # Generate a timestamp or use the current date
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    # Construct the experiment name
-    experiment_name = f"{env_id}_{timestamp}"
-
-    # Local path for saving or accessing experiment-related files
-    local_path = f"/{env_id}/{experiment_name}/"
-    
-
-    if config.wandb.enable:
-        import wandb
-        
-        wandb.init(
-            project=config.wandb.project,
-            entity=config.wandb.entity,
-            sync_tensorboard=True,
-            name=experiment_name,
-            monitor_gym=True,
-            save_code=True,
-        )
-
-    env = gym.make(env_id, render_mode="rgb_array")
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-    if config.video_recording.enable:
-       env = gym.wrappers.RecordVideo(env, config.tensorboard.log_dir + local_path + "videos/", episode_trigger=lambda t : t % config.video_recording.record_frequency == 0)   
-    env = gym.wrappers.ResizeObservation(env, shape=config.gymnasium.new_obs_size)
-    env = channelFirst(env)
-    env = TanhRewardWrapper(env)
-    obs, _ = env.reset()
-    
-    writer = SummaryWriter(config.tensorboard.log_dir + local_path)
-    
-    agent = Dreamer(config=config, env=env, writer=writer, logpath=config.tensorboard.log_dir + local_path)
-    agent.train()
-    
-    env.close()

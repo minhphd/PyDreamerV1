@@ -1,10 +1,10 @@
 device: "cuda"
-experiment_name: Cart-pole
+experiment_name: Quadruped
 seed: 0
 
 env:
-    env_id: cartpole
-    task: balance
+    env_id: quadruped
+    task: walk
     discrete: False
     new_obs_size: [64, 64]
     norm_obs: True
