@@ -2,7 +2,7 @@ device: "mps"
 experiment_name: Boxing-v5-new
 seed: 0
 
-gymnasium:
+env:
     env_id: ALE/Boxing-v5
     channel_first: True
     discrete: True

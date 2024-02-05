@@ -12,13 +12,6 @@ def log_metrics(metrics, step, tb_writer, wandb_writer):
     #     wandb_writer.log(metrics, step=step)
 
 
-def get_obs(env, new_size):
-    obs = env.physics.render(*new_size)
-    obs = obs/255 - 0.5
-    rearranged_obs = obs.transpose([2,0,1])
-    return rearranged_obs
-
-
 def td_lambda(rewards, predicted_discount, values, lambda_, device):
     """
     Compute the TD(λ) returns for value estimation.

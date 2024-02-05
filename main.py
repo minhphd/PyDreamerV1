@@ -29,16 +29,18 @@ except yaml.YAMLError as e:
     print(f"Error parsing configuration file: {e}")
     exit(1)
 
-env_id = config.gymnasium.env_id
+
+env_id = config.env.env_id
 
 # Prepare experiment naming and logging directory
 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-experiment_name = f"{config.gymnasium.env_id}_{timestamp}"
-local_path = f"./{config.gymnasium.env_id}/{experiment_name}/"
+experiment_name = f"{config.env.env_id}_{timestamp}"
+local_path = f"./{config.env.env_id}/{experiment_name}/"
 
+wandb_writer = None
 if config.wandb.enable:
     import wandb
-    wandb.init(
+    wandb_writer = wandb.init(
         project=config.wandb.project,
         entity=config.wandb.entity,
         sync_tensorboard=True,
@@ -46,17 +48,29 @@ if config.wandb.enable:
         monitor_gym=True,
         save_code=True,
     )
+    artifact = wandb.Artifact(name="my_data", type="dataset")
+    artifact.add_dir(local_path="./dataset.h5")  
+    wandb_writer.log(artifact)
 
-writer = SummaryWriter(config.tensorboard.log_dir + local_path)
-    
-if 'ALE' in config.gymnasium.env_id:
+if 'ALE' in config.env.env_id:
     env = gym.make(env_id, 1000, render_mode='rgb_array')
-    env = AtariPreprocess(env, config.gymnasium.new_obs_size, 
+    env = AtariPreprocess(env, config.env.new_obs_size, 
                           config.video_recording.enable, 
                           record_path=config.tensorboard.log_dir + local_path + '/videos/', 
                           record_freq=2)
+else:
+    task = config.env.task
+    local_path += f"{task}/"
+    env = DMCtoGymWrapper(env_id, task,
+                          resize=config.env.new_obs_size,
+                          record=config.video_recording.enable,
+                          record_freq=config.video_recording.record_frequency,
+                          record_path=config.tensorboard.log_dir + local_path + 'videos/',
+                          max_episode_steps=1000)
+    
+writer = SummaryWriter(config.tensorboard.log_dir + local_path)
 
 # Initialize Dreamer agent and training
-agent = Dreamer(config=config, env=env, writer=writer, logpath=config.tensorboard.log_dir + local_path)
+agent = Dreamer(config=config, env=env, writer=writer, logpath=config.tensorboard.log_dir + local_path, wandb_writer=wandb_writer)
 agent.train()
 env.close()

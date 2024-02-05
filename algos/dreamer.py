@@ -17,29 +17,18 @@ import os
 import numpy as np
 import yaml
 from tqdm import tqdm
-import pickle
-from datetime import datetime
 import wandb
 
 # Machine Learning and Data Processing Imports
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
-from addict import Dict
 
 # Custom Utility Imports
 import utils.models as models
 from utils.buffer import ReplayBuffer
 from utils.utils import td_lambda, log_metrics
 
-# Gymnasium Environment Import
-import gymnasium as gym
-
-# Set random seed for reproducibility
-SEED = 123
-np.random.seed(SEED)
-torch.manual_seed(SEED)
 
 class Dreamer:
     def __init__(self, config, logpath, env, writer = None, wandb_writer=None):
@@ -47,10 +36,14 @@ class Dreamer:
         self.device = torch.device(self.config.device)
         self.env = env
         self.obs_size = env.observation_space.shape
-        self.action_size = env.action_space.n if self.config.gymnasium.discrete else env.action_space.shape[0]
+        self.action_size = env.action_space.n if self.config.env.discrete else env.action_space.shape[0]
         self.epsilon = self.config.main.epsilon_start
         self.env_step = 0
         self.logpath = logpath
+        
+        # Set random seed for reproducibility
+        np.random.seed(self.config.seed)
+        torch.manual_seed(self.config.seed)
         
         #dynamic networks initialized
         self.rssm = models.RSSM(self.config.main.stochastic_size, 
@@ -82,7 +75,7 @@ class Dreamer:
         self.actor = models.Actor(self.config.main.stochastic_size + self.config.main.deterministic_size,
                                   self.config.main.hidden_units,
                                   self.action_size,
-                                  self.config.gymnasium.discrete).to(self.device)
+                                  self.config.env.discrete).to(self.device)
         self.critic = models.Critic(self.config.main.stochastic_size + self.config.main.deterministic_size,
                                   self.config.main.hidden_units).to(self.device)
         
@@ -93,7 +86,7 @@ class Dreamer:
         self.gradient_step = 0
         
         #buffer
-        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.gymnasium.discrete)
+        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.env.discrete)
         
         #tracking stuff
         self.wandb_writer = wandb_writer
@@ -119,7 +112,7 @@ class Dreamer:
         obs, _ = self.env.reset()
         while ep < self.config.main.data_init_ep:
             action = self.env.action_space.sample()
-            if self.config.gymnasium.discrete:  
+            if self.config.env.discrete:  
                 actions = np.zeros((self.action_size, ))
                 actions[action] = 1.0
             else:
@@ -421,7 +414,7 @@ class Dreamer:
             # add exploration noise if not in evaluation mode
             if not eval:
                 actions = actor_out.cpu().numpy()
-                if self.config.gymnasium.discrete:
+                if self.config.env.discrete:
                     if np.random.rand() < self.epsilon:
                         action = self.env.action_space.sample()
                     else:
@@ -434,7 +427,7 @@ class Dreamer:
                     action = (actions + noise)[0]
             else:
                 actions = actor_out.cpu().numpy()
-                if self.config.gymnasium.discrete:
+                if self.config.env.discrete:
                     action = np.argmax(actions)
                 else:
                     action = actions[0]
