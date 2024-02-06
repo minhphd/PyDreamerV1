@@ -30,7 +30,7 @@ class DMCtoGymWrapper(gym.Env):
         record_path (str, optional): Path to save recorded videos. Defaults to '../'.
         max_episode_steps (int, optional): Maximum steps per episode for truncation. Defaults to 1000.
     """
-    def __init__(self, domain_name, task_name, task_kwargs=None, visualize_reward=False, resize=[64,64], record=False, record_freq=100, record_path='../', max_episode_steps=1000):
+    def __init__(self, domain_name, task_name, task_kwargs=None, visualize_reward=False, resize=[64,64], record=False, record_freq=100, record_path='../', max_episode_steps=1000, camera=None):
         super().__init__()
         self.env = suite.load(domain_name, task_name, task_kwargs=task_kwargs, visualize_reward=visualize_reward)
         self.episode_count = -1
@@ -50,6 +50,10 @@ class DMCtoGymWrapper(gym.Env):
         self.env = pixels.Wrapper(self.env, pixels_only=True)
         self.resize = resize  # Assuming RGB images
         self.observation_space = gym.spaces.Box(low=-0.5, high=+0.5, shape=(3, *resize), dtype=np.float32)
+
+        if camera is None:
+            camera = dict(quadruped=2).get(domain_name, 0)
+        self._camera = camera
 
     def step(self, action):
         time_step = self.env.step(action)
@@ -71,7 +75,7 @@ class DMCtoGymWrapper(gym.Env):
             }
             
         if self.recorder:
-            frame = cv2.cvtColor(time_step.observation['pixels'], cv2.COLOR_RGB2BGR)
+            frame = cv2.cvtColor(self.env.physics.render(camera_id=self._camera), cv2.COLOR_RGB2BGR)
             self.recorder.write(frame)
             video_file = os.path.join(self.record_path, f"episode_{self.episode_count}.webm")
             if termination or truncation:
@@ -89,7 +93,7 @@ class DMCtoGymWrapper(gym.Env):
         obs = self._get_obs(self.env)
 
         if self.record and self.episode_count % self.record_freq == 0:
-            self._start_recording(time_step.observation['pixels'])
+            self._start_recording(self.env.physics.render(camera_id=self._camera))
         
         return obs, {}
 
@@ -107,13 +111,13 @@ class DMCtoGymWrapper(gym.Env):
             self.recorder = None
             
     def _get_obs(self, env):
-        obs = env.physics.render(*self.resize)
+        obs = self.render()
         obs = obs/255 - 0.5
         rearranged_obs = obs.transpose([2,0,1])
         return rearranged_obs
 
     def render(self, mode='rgb_array'):
-        return self.env.physics.render(camera_id=0)  # Adjust camera_id based on the environment
+        return self.env.physics.render(*self.resize, camera_id=self._camera)  # Adjust camera_id based on the environment
 
 
 class AtariPreprocess(gym.Wrapper):
