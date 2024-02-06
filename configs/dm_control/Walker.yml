@@ -1,10 +1,11 @@
 device: "cuda"
 experiment_name: Walker
+seed: 0
 
-dmc:
-    domain: walker
+env:
+    env_id: walker
     task: walk
-    new_obs_size: [3, 64, 64]
+    new_obs_size: [64, 64]
     
 tensorboard:
     enable: False
