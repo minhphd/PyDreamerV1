@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Jan 26th, 2024
-Last Modified: Jan 26th, 2024
+Last Modified: Feb 5th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -66,19 +66,42 @@ dones_buffer_shape: {self.dones.shape}
             self.full = True
 
     def sample(self, batch_size, seq_len, device):
-        """circular sampling batches of experiences of fixed sequence length
+        """
+        Samples batches of experiences of fixed sequence length from the replay buffer, 
+        taking into account the circular nature of the buffer to avoid crossing the 
+        "end" of the buffer when it is full.
+
+        This method ensures that sampled sequences are continuous and do not wrap around 
+        the end of the buffer, maintaining the temporal integrity of experiences. This is 
+        particularly important when the buffer is full, and the pointer marks the boundary 
+        between the newest and oldest data in the buffer.
 
         Args:
-            batch_size (int): number of batches
-            seq_len (int): length of each batch sequence
-            device (torch.device): device to store the output tensor
+            batch_size (int): The number of sequences to sample.
+            seq_len (int): The length of each sequence to sample.
+            device (torch.device): The device on which the sampled data will be loaded.
 
         Raises:
-            Exception: not enough data
+            Exception: If there is not enough data in the buffer to sample a full sequence.
 
         Returns:
-            _type_: tuple (obs, actions, rewards, next_obs, dones)
+            Dict: A dictionary containing the sampled sequences of observations, actions, 
+            rewards, and dones. Each item in the dictionary is a tensor of shape 
+            (batch_size, seq_len, feature_dimension), except for 'dones' which is of shape 
+            (batch_size, seq_len, 1).
+
+        Notes:
+            - The method handles different scenarios based on the buffer's state (full or not) 
+            and the pointer's position to ensure valid sequence sampling without wrapping.
+            - When the buffer is not full, sequences can start from index 0 up to the 
+            index where `seq_len` sequences can fit without surpassing the current pointer.
+            - When the buffer is full, the method ensures sequences do not start in a way 
+            that would cause them to wrap around past the pointer, effectively crossing 
+            the boundary between the newest and oldest data.
+            - This approach guarantees the sampled sequences respect the temporal order 
+            and continuity necessary for algorithms that rely on sequences of experiences.
         """
+        
         # Ensure there's enough data to sample
         if self.pointer < seq_len and not self.full:
             raise Exception('not enough data to sample')
@@ -110,6 +133,7 @@ dones_buffer_shape: {self.dones.shape}
     
     def clear(self, ):
         self.pointer = 0
+        self.full = False
 
     def __len__(self, ):
         return self.pointer

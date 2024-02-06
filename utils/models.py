@@ -30,7 +30,7 @@ class RSSM(nn.Module):
     """Reccurent State Space Model (RSSM)
     The main model that we will use to learn the latent dynamic of the environment
     """
-    def __init__(self, stochastic_size, obs_embed_size, deterministic_size, hidden_size, action_size, activation=nn.ELU()):
+    def __init__(self, stochastic_size, obs_embed_size, deterministic_size, hidden_size, action_size, activation=nn.ELU):
         super().__init__()
         self.stochastic_size = stochastic_size
         self.action_size = action_size
@@ -41,21 +41,21 @@ class RSSM(nn.Module):
         # recurrent
         self.recurrent_linear = nn.Sequential(
             nn.Linear(stochastic_size + action_size, hidden_size),
-            activation,
+            activation(),
         )
         self.gru_cell = nn.GRUCell(hidden_size, deterministic_size)
         
         # representation model, for calculating posterior
         self.representatio_model = nn.Sequential(
             nn.Linear(deterministic_size + obs_embed_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, stochastic_size*2)
         )
         
         # transition model, for calculating prior, use for imagining trajectories
         self.transition_model = nn.Sequential(
             nn.Linear(deterministic_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, stochastic_size*2)
         )
         
@@ -123,7 +123,7 @@ class RSSM(nn.Module):
         
 
 class ConvEncoder(nn.Module):
-    def __init__(self, depth=32, input_shape=(3,64,64), activation=nn.ReLU()):
+    def __init__(self, depth=32, input_shape=(3,64,64), activation=nn.ReLU):
         super().__init__()
         self.depth = depth
         self.input_shape = input_shape
@@ -135,7 +135,7 @@ class ConvEncoder(nn.Module):
                 stride=2,
                 padding="valid"
             ),
-            activation,
+            activation(),
             nn.Conv2d(
                 in_channels=depth * 1,
                 out_channels=depth * 2,
@@ -143,7 +143,7 @@ class ConvEncoder(nn.Module):
                 stride=2,
                 padding="valid"
             ),
-            activation,
+            activation(),
             nn.Conv2d(
                 in_channels=depth * 2,
                 out_channels=depth * 4,
@@ -151,7 +151,7 @@ class ConvEncoder(nn.Module):
                 stride=2,
                 padding="valid"
             ),
-            activation,
+            activation(),
             nn.Conv2d(
                 in_channels=depth * 4,
                 out_channels=depth * 8,
@@ -159,7 +159,7 @@ class ConvEncoder(nn.Module):
                 stride=2,
                 padding="valid"
             ),
-            activation
+            activation()
         )
         self.conv_layer.apply(initialize_weights)
         
@@ -182,7 +182,7 @@ class ConvDecoder(nn.Module):
     Also referred to as observation model by the official Dreamer paper
     
     """
-    def __init__(self, stochastic_size, deterministic_size, depth=32, out_shape=(3,64,64), activation=nn.ReLU()):
+    def __init__(self, stochastic_size, deterministic_size, depth=32, out_shape=(3,64,64), activation=nn.ReLU):
         super().__init__()
         self.out_shape = out_shape
         self.net = nn.Sequential(
@@ -195,21 +195,21 @@ class ConvDecoder(nn.Module):
                 kernel_size=5,
                 stride=2,
             ),
-            activation,
+            activation(),
             nn.ConvTranspose2d(
                 depth * 4,
                 depth * 2,
                 kernel_size=5,
                 stride=2,
             ),
-            activation,
+            activation(),
             nn.ConvTranspose2d(
                 depth * 2,
                 depth * 1,
                 kernel_size=5 + 1,
                 stride=2,
             ),
-            activation,
+            activation(),
             nn.ConvTranspose2d(
                 depth * 1,
                 out_shape[0],
@@ -258,12 +258,12 @@ class RewardNet(nn.Module):
     Args:
         nn (_type_): _description_
     """
-    def __init__(self, input_size, hidden_size, activation=nn.ELU()):
+    def __init__(self, input_size, hidden_size, activation=nn.ELU):
         super().__init__()
         
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, 1)
         )
         
@@ -296,14 +296,14 @@ class ContinuoNet(nn.Module):
     Args:
         nn (_type_): _description_
     """
-    def __init__(self, input_size, hidden_size, activation=nn.ELU()):
+    def __init__(self, input_size, hidden_size, activation=nn.ELU):
         super().__init__()
         
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, 1)
         )
         
@@ -338,7 +338,7 @@ class Actor(nn.Module):
                  hidden_size,
                  action_size, 
                  discrete=True, 
-                 activation=nn.ELU(), 
+                 activation=nn.ELU, 
                  min_std=1e-4, 
                  init_std=5, 
                  mean_scale=5):
@@ -354,7 +354,7 @@ class Actor(nn.Module):
         
         self.net = nn.Sequential(
             nn.Linear(latent_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, self.action_size)
         )
     
@@ -374,12 +374,16 @@ class Actor(nn.Module):
         x = self.net(latent_state)
         
         if self.discrete:
+            # straight through gradient (mentioned in DreamerV2)
             dist = torch.distributions.OneHotCategorical(logits=x)
             action = dist.sample() + dist.probs - dist.probs.detach()
         else:
+            #ensure that the softplut output proper init_std
+            raw_init_std = np.log(np.exp(self.init_std) - 1)
+            
             mean, std = torch.chunk(x, 2, -1)
             mean = self.mean_scale * F.tanh(mean / self.mean_scale)
-            std = F.softplus(std + self.init_std) + self.min_std
+            std = F.softplus(std + raw_init_std) + self.min_std
             
             dist = torch.distributions.Normal(mean, std)
             dist = torch.distributions.TransformedDistribution(dist, torch.distributions.TanhTransform())
@@ -392,15 +396,15 @@ class Critic(nn.Module):
     """
     critic network
     """
-    def __init__(self, latent_size, hidden_size, activation=nn.ELU()):
+    def __init__(self, latent_size, hidden_size, activation=nn.ELU):
         super().__init__()
         self.latent_size = latent_size
         
         self.net = nn.Sequential(
             nn.Linear(latent_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, hidden_size),
-            activation,
+            activation(),
             nn.Linear(hidden_size, 1)
         )
         

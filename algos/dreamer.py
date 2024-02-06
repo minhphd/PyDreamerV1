@@ -66,10 +66,12 @@ class Dreamer:
         self.dyna_parameters = (
             list(self.rssm.parameters())
             + list(self.reward.parameters())
-            + list(self.cont_net.parameters())
             + list(self.encoder.parameters())
             + list(self.decoder.parameters())
         )
+
+        if self.config.main.continue_loss:
+          self.dyna_parameters += list(self.cont_net.parameters())
         
         #behavior networks initialized
         self.actor = models.Actor(self.config.main.stochastic_size + self.config.main.deterministic_size,
@@ -86,7 +88,7 @@ class Dreamer:
         self.gradient_step = 0
         
         #buffer
-        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ), self.config.env.discrete)
+        self.buffer = ReplayBuffer(self.config.main.buffer_capacity, self.obs_size, (self.action_size, ))
         
         #tracking stuff
         self.wandb_writer = wandb_writer
@@ -390,7 +392,7 @@ class Dreamer:
         # critic optimizing
         values_dist = self.critic(state_trajectories[:, :-1].detach(), deterministics_trajectories[:, :-1].detach())
         
-        critic_loss = -(discount.squeeze() * values_dist.log_prob(returns)).mean()
+        critic_loss = -(discount.squeeze() * values_dist.log_prob(returns.detach())).mean()
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
