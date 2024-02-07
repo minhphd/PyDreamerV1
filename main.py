@@ -1,3 +1,13 @@
+"""
+Author: Minh Pham-Dinh
+Created: Feb 4th, 2024
+Last Modified: Feb 6th, 2024
+Email: mhpham26@colby.edu
+
+Description:
+    Main running file
+"""
+
 import gymnasium as gym
 import numpy as np
 import yaml
@@ -63,8 +73,8 @@ else:
                           record=config.video_recording.enable,
                           record_freq=config.video_recording.record_frequency,
                           record_path=config.tensorboard.log_dir + local_path + 'videos/',
-                          max_episode_steps=1000)
-    env = ActionRepeat(env, 2)
+                          max_episode_steps=config.env.time_limit / config.env.action_repeat)
+    env = ActionRepeat(env, config.env.action_repeat)
     
 writer = SummaryWriter(config.tensorboard.log_dir + local_path)
 

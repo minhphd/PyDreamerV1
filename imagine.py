@@ -1,3 +1,13 @@
+"""
+Author: Minh Pham-Dinh
+Created: Feb 4th, 2024
+Last Modified: Feb 6th, 2024
+Email: mhpham26@colby.edu
+
+Description:
+    Imagination file. Run this file to generate dream sequences
+"""
+
 import sys
 import argparse
 from utils.wrappers import DMCtoGymWrapper, AtariPreprocess
@@ -48,6 +58,9 @@ rssm = torch.load(run_path + '/models/rssm_model', map_location=torch.device('cp
 actor = torch.load(run_path + '/models/actor', map_location=torch.device('cpu'))
 
 obs, _ = env.reset()
+
+for i in range(100):
+    obs, _, _, _, _ = env.step(env.action_space.sample())
 
 posterior = torch.zeros((1, config.main.stochastic_size))
 deterministic = torch.zeros((1, config.main.deterministic_size))

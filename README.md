@@ -2,10 +2,19 @@
 
 This repository offers a comprehensive implementation of the Dreamer algorithm, as presented in the groundbreaking work by Hafner et al., "Dream to Control: Learning Behaviors by Latent Imagination." Our implementation is dedicated to faithfully reproducing the innovative approach of learning and planning within a learned latent space, enabling agents to efficiently master complex behaviors through imagination alone.
 
+
+### Actual Runs in Environments
 <div align="center">
-  <img src="./gif/boxing_imagine.gif" alt="Trained RSSM imagining 50 steps ahead" width="300px" height="300px"/>
-  <img src="./gif/boxing.gif" alt="Trained boxing agent" width="300px" height="300px"/>
+  <img src="./gif/boxing.gif" alt="Actual run in " width="200px" height="200px"/>
+  <img src="./gif/pacman.gif" alt="Actual run in " width="200px" height="200px"/>
+  <img src="./gif/walker.gif" alt="Actual run in " width="200px" height="200px"/>
 </div>
+<div align="center">
+  <img src="./gif/boxing_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
+  <img src="./gif/pacman_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
+  <img src="./gif/walker_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
+</div>
+
 
 ## Why Dreamer?
 

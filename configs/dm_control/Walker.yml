@@ -6,6 +6,8 @@ env:
     env_id: walker
     task: walk
     new_obs_size: [64, 64]
+    action_repeat: 2
+    time_limit: 1000
     
 tensorboard:
     enable: False
@@ -13,16 +15,18 @@ tensorboard:
     log_frequency: 1  # Log every 1000 steps
 
 wandb:
-    enable: True
+    enable: False
     project: "dreamer"
     entity: "phdminh01"
     log_frequency: 1
 
 video_recording:
-    enable: True
-    record_frequency: 50  #episodes
+    enable: False
+    record_frequency: 100  #episodes
 
 main:
+    continue_loss: False
+    continue_scale_factor: 10
     total_iter: 2000
     save_freq: 20
     collect_iter: 100
