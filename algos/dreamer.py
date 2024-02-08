@@ -221,6 +221,8 @@ class Dreamer:
         for t in (range(1, seq_len)):
             deterministic = self.rssm.recurrent(posterior, b_a[:, t-1, :], deterministic)
             prior_dist, prior = self.rssm.transition(deterministic)
+            
+            #detail observation is shifted 1 timestep ahead(action is associated with the next state)
             posterior_dist, posterior = self.rssm.representation(eb_obs[:, t, :], deterministic)
 
             '''
@@ -430,7 +432,7 @@ class Dreamer:
         #initialized all zeros
         posterior = torch.zeros((1, self.config.main.stochastic_size)).to(self.device)
         deterministic = torch.zeros((1, self.config.main.deterministic_size)).to(self.device)
-        action = torch.zeros((1, self.action_size)).to(self.device)
+        action = torch.zeros((1, self.action_size)).to(self.device) 
         
         while ep < num_episodes:
             embed_obs = self.encoder(torch.from_numpy(obs).to(self.device, dtype=torch.float)) #(1, embed_obs_sz)
@@ -438,7 +440,7 @@ class Dreamer:
             _, posterior = self.rssm.representation(embed_obs, deterministic)
             actor_out = self.actor(posterior, deterministic)
             
-            # add exploration noise if not in evaluation mode
+            #detail: add exploration noise if not in evaluation mode
             if not eval:
                 actions = actor_out.cpu().numpy()
                 if self.config.env.discrete:
