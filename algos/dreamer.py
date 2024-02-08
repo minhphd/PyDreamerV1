@@ -450,13 +450,16 @@ class Dreamer:
                     mean_noise = self.config.main.mean_noise
                     std_noise = self.config.main.std_noise
                     
-                    noise = np.random.normal(mean_noise, std_noise, size=actions.shape)
-                    action = (actions + noise)[0]
+                    normal_dist = torch.distributions.Normal(actor_out + mean_noise, std_noise)
+                    sampled_action = normal_dist.sample().cpu().numpy()
+                    actions = np.clip(sampled_action, a_min=-1, a_max=1)
+                    action = actions[0]
             else:
                 actions = actor_out.cpu().numpy()
                 if self.config.env.discrete:
                     action = np.argmax(actions)
                 else:
+                    actions = np.clip(actions, a_min=-1, a_max=1)
                     action = actions[0]
                     
             next_obs, reward, termination, truncation, info = self.env.step(action)

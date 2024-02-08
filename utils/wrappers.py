@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Feb 4th, 2024
-Last Modified: Feb 5th, 2024
+Last Modified: Feb 7th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -17,7 +17,7 @@ import os
 from dm_control import suite
 from dm_control.rl.control import Environment
 
-
+#wrapper by Hafner et al
 class ActionRepeat:
     def __init__(self, env, repeats):
         self.env = env
@@ -36,6 +36,31 @@ class ActionRepeat:
             current_step += 1
             done = termination or truncation
         return obs, total_reward, termination, truncation, info
+
+
+#wrapper by Hafner et al
+class NormalizeActions:
+    def __init__(self, env):
+        self._env = env
+        self._mask = np.logical_and(
+            np.isfinite(env.action_space.low),
+            np.isfinite(env.action_space.high))
+        self._low = np.where(self._mask, env.action_space.low, -1)
+        self._high = np.where(self._mask, env.action_space.high, 1)
+
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+
+    @property
+    def action_space(self):
+        low = np.where(self._mask, -np.ones_like(self._low), self._low)
+        high = np.where(self._mask, np.ones_like(self._low), self._high)
+        return gym.spaces.Box(low, high, dtype=np.float32)
+
+    def step(self, action):
+        original = (action + 1) / 2 * (self._high - self._low) + self._low
+        original = np.where(self._mask, original, action)
+        return self._env.step(original)
 
 
 class DMCtoGymWrapper(gym.Env):
