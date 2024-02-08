@@ -75,6 +75,7 @@ else:
                           record_path=config.tensorboard.log_dir + local_path + 'videos/',
                           max_episode_steps=config.env.time_limit / config.env.action_repeat)
     env = ActionRepeat(env, config.env.action_repeat)
+    env = NormalizeActions(env)
     
 writer = SummaryWriter(config.tensorboard.log_dir + local_path)
 
