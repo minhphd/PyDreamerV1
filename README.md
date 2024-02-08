@@ -1,9 +1,5 @@
 # PyDreamerV1: Clean pytorch implementation of Hafner et al Dreamer (WIP)
 
-This repository offers a comprehensive implementation of the Dreamer algorithm, as presented in the groundbreaking work by Hafner et al., "Dream to Control: Learning Behaviors by Latent Imagination." Our implementation is dedicated to faithfully reproducing the innovative approach of learning and planning within a learned latent space, enabling agents to efficiently master complex behaviors through imagination alone.
-
-
-### Actual Runs in Environments
 <div align="center">
   <img src="./gif/boxing.gif" alt="Actual run in " width="200px" height="200px"/>
   <img src="./gif/pacman.gif" alt="Actual run in " width="200px" height="200px"/>
@@ -15,6 +11,9 @@ This repository offers a comprehensive implementation of the Dreamer algorithm, 
   <img src="./gif/walker_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
 </div>
 
+
+
+This repository offers a comprehensive implementation of the Dreamer algorithm, as presented in the groundbreaking work by Hafner et al., "Dream to Control: Learning Behaviors by Latent Imagination." Our implementation is dedicated to faithfully reproducing the innovative approach of learning and planning within a learned latent space, enabling agents to efficiently master complex behaviors through imagination alone.
 
 ## Why Dreamer?
 
