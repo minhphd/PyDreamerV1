@@ -468,7 +468,7 @@ class Dreamer:
             
             if not eval:
                 self.buffer.add(obs, actions, reward, termination | truncation)
-                self.env_step += 1
+                self.env_step += self.config.env.action_repeat
             obs = next_obs
             
             action = actor_out

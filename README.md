@@ -2,12 +2,12 @@
 
 <div align="center">
   <img src="./gif/boxing.gif" alt="Actual run in " width="200px" height="200px"/>
-  <img src="./gif/pacman.gif" alt="Actual run in " width="200px" height="200px"/>
+  <img src="./gif/quadruped.gif" alt="Actual run in " width="200px" height="200px"/>
   <img src="./gif/walker.gif" alt="Actual run in " width="200px" height="200px"/>
 </div>
 <div align="center">
   <img src="./gif/boxing_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
-  <img src="./gif/pacman_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
+  <img src="./gif/quadruped_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
   <img src="./gif/walker_imagine.gif" alt="Imagination in " width="200px" height="200px"/>
 </div>
 

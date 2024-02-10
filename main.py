@@ -8,6 +8,10 @@ Description:
     Main running file
 """
 
+
+import os
+os.environ["MUJOCO_GL"] = "egl"
+
 import gymnasium as gym
 import numpy as np
 import yaml
@@ -16,7 +20,6 @@ from addict import Dict
 from torch.utils.tensorboard import SummaryWriter
 from utils.wrappers import *
 from algos.dreamer import Dreamer
-import os
 import argparse
 
 # Define an argparse argument to accept a configuration file path from the command line
