@@ -106,7 +106,7 @@ dones_buffer_shape: {self.dones.shape}
         if self.pointer < seq_len and not self.full:
             raise Exception('not enough data to sample')
 
-        # handling different cases for circular sampling
+        # detail: handling different cases for circular sampling
         if self.full:
             if self.pointer - seq_len < 0:
                 valid_range = np.arange(self.pointer, self.observation.shape[0] - (self.pointer - seq_len) + 1)

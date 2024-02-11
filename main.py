@@ -1,7 +1,7 @@
 """
 Author: Minh Pham-Dinh
 Created: Feb 4th, 2024
-Last Modified: Feb 6th, 2024
+Last Modified: Feb 10th, 2024
 Email: mhpham26@colby.edu
 
 Description:
@@ -76,7 +76,8 @@ else:
                           record=config.video_recording.enable,
                           record_freq=config.video_recording.record_frequency,
                           record_path=config.tensorboard.log_dir + local_path + 'videos/',
-                          max_episode_steps=config.env.time_limit / config.env.action_repeat)
+                          max_episode_steps=config.env.time_limit)
+    #detail: action repeat and normalize action
     env = ActionRepeat(env, config.env.action_repeat)
     env = NormalizeActions(env)
     

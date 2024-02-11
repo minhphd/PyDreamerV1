@@ -40,6 +40,19 @@ class ActionRepeat:
 
 #wrapper by Hafner et al
 class NormalizeActions:
+    """
+    A wrapper class that normalizes the action space of an environment.
+
+    Args:
+        env (gym.Env): The environment to be wrapped.
+
+    Attributes:
+        _env (gym.Env): The original environment.
+        _mask (numpy.ndarray): A boolean mask indicating which action dimensions are finite.
+        _low (numpy.ndarray): The lower bounds of the action space.
+        _high (numpy.ndarray): The upper bounds of the action space.
+    """
+
     def __init__(self, env):
         self._env = env
         self._mask = np.logical_and(
@@ -49,15 +62,39 @@ class NormalizeActions:
         self._high = np.where(self._mask, env.action_space.high, 1)
 
     def __getattr__(self, name):
+        """
+        Delegate attribute access to the original environment.
+
+        Args:
+            name (str): The name of the attribute.
+
+        Returns:
+            Any: The value of the attribute in the original environment.
+        """
         return getattr(self._env, name)
 
     @property
     def action_space(self):
+        """
+        Get the normalized action space.
+
+        Returns:
+            gym.spaces.Box: The normalized action space.
+        """
         low = np.where(self._mask, -np.ones_like(self._low), self._low)
         high = np.where(self._mask, np.ones_like(self._low), self._high)
         return gym.spaces.Box(low, high, dtype=np.float32)
 
     def step(self, action):
+        """
+        Take a step in the environment with a normalized action.
+
+        Args:
+            action (numpy.ndarray): The normalized action.
+
+        Returns:
+            Tuple: A tuple containing the next state, reward, done flag, and additional information.
+        """
         original = (action + 1) / 2 * (self._high - self._low) + self._low
         original = np.where(self._mask, original, action)
         return self._env.step(original)
